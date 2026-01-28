@@ -46,15 +46,20 @@ def get_db_connection():
     )
 
 # CORS Configuration
+# CORS Configuration - Allow frontend origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "*"],
+    allow_origins=[
+        'http://localhost:3000',           # Local development
+        'http://127.0.0.1:3000',           # Local development alternative
+        'https://metpro-erp-frontend.vercel.app',  # Production Vercel
+        'https://*.vercel.app'             # All Vercel preview deployments
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=['*'],
+    allow_headers=['*'],
+    expose_headers=['*']
 )
-
 # Simple health check endpoint
 @app.get("/health")
 def health():
