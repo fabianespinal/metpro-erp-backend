@@ -822,6 +822,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             conn.close()
 
 # Authentication endpoint - REAL database authentication
+# Authentication endpoint - REAL database authentication
 @app.post('/auth/login')
 def login(login_data: LoginRequest):
     """Login endpoint that checks Supabase database"""
@@ -829,33 +830,33 @@ def login(login_data: LoginRequest):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Get user from database
         cursor.execute(
             'SELECT id, username, email, hashed_password, role, is_active FROM users WHERE username = %s',
             (login_data.username,)
         )
         user = cursor.fetchone()
-        
+
         # Check if user exists
         if not user:
             raise HTTPException(status_code=401, detail='Invalid username or password')
-        
+
         # Check if user is active
         if not user['is_active']:
             raise HTTPException(status_code=403, detail='Account is deactivated')
-        
+
         # Verify password
         if not pwd_context.verify(login_data.password, user['hashed_password']):
             raise HTTPException(status_code=401, detail='Invalid username or password')
-        
+
         # Create JWT token
         access_token = create_access_token(data={
             'sub': user['username'],
             'user_id': user['id'],
             'role': user['role']
         })
-        
+
         return {
             'access_token': access_token,
             'token_type': 'bearer',
@@ -864,7 +865,7 @@ def login(login_data: LoginRequest):
             'role': user['role'],
             'message': 'Login successful'
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
