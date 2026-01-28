@@ -40,9 +40,9 @@ app = FastAPI(title='METPRO ERP API')
 
 def get_db_connection():
     """Get a new database connection to Supabase PostgreSQL"""
-    return psycopg2.connect(
+    return psycopg.connect(
         DATABASE_URL,
-        cursor_factory=RealDictCursor
+        row_factory=dict_row
     )
 
 # CORS Configuration
