@@ -2,7 +2,6 @@ services:
   - type: web
     name: metpro-erp-api
     env: python
-    pythonVersion: 3.12.3
     region: oregon
     plan: free
     buildCommand: "pip install -r requirements.txt"
