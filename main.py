@@ -8,8 +8,10 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional
-import psycopg2
-from psycopg2.extras import RealDictCursor
+
+import psycopg  # psycopg3
+from psycopg.rows import dict_row  # replacement for RealDictCursor
+
 import json
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -374,34 +376,41 @@ def calculate_quote_totals(items: List[dict], charges: dict):
 # Quote endpoints (same as before - no changes needed)
 @app.post('/quotes/', response_model=dict)
 def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    conn = None
     try:
-        client = cursor.execute('SELECT * FROM clients WHERE id = ?', (quote_data.client_id,)).fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verify client exists (PostgreSQL uses %s not ?)
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (quote_data.client_id,))
+        client = cursor.fetchone()
         if not client:
             raise HTTPException(status_code=404, detail='Client not found')
         
+        # Calculate totals
         totals = calculate_quote_totals(
             [item.model_dump() for item in quote_data.items],
             quote_data.included_charges.model_dump()
         )
         
+        # Generate quote ID
         year = datetime.now().year
-        last_quote = cursor.execute(
-            'SELECT quote_id FROM quotes WHERE quote_id LIKE ? ORDER BY quote_id DESC LIMIT 1',
+        cursor.execute(
+            'SELECT quote_id FROM quotes WHERE quote_id LIKE %s ORDER BY quote_id DESC LIMIT 1',
             (f'COT-{year}-%',)
-        ).fetchone()
+        )
+        last_quote = cursor.fetchone()
         
         if last_quote:
-            num = int(last_quote[0].split('-')[-1])
+            num = int(last_quote['quote_id'].split('-')[-1])
             quote_id = f'COT-{year}-{num+1:03d}'
         else:
             quote_id = f'COT-{year}-001'
         
+        # Insert quote (PostgreSQL uses %s not ?)
         cursor.execute('''
             INSERT INTO quotes (quote_id, client_id, project_name, date, total_amount, status, notes, included_charges)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             quote_id,
             quote_data.client_id,
@@ -413,10 +422,11 @@ def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_to
             json.dumps(quote_data.included_charges.model_dump())
         ))
         
+        # Insert items (PostgreSQL uses %s not ?)
         for item in quote_data.items:
             cursor.execute('''
                 INSERT INTO quote_items (quote_id, product_name, quantity, unit_price, discount_type, discount_value)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s)
             ''', (
                 quote_id,
                 item.product_name,
@@ -436,17 +446,19 @@ def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_to
     except HTTPException:
         raise
     except Exception as e:
-        conn.rollback()
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @app.get('/quotes/', response_model=List[dict])
 def get_quotes(current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute('''
             SELECT q.quote_id, q.client_id, q.project_name, q.date, q.total_amount, q.status, 
                    c.company_name, q.notes, q.included_charges
@@ -454,25 +466,20 @@ def get_quotes(current_user: dict = Depends(verify_token)):
             JOIN clients c ON q.client_id = c.id
             ORDER BY q.date DESC
         ''')
-        
         rows = cursor.fetchall()
-        
-        quotes = []
-        for row in rows:
-            quotes.append({
-                'quote_id': row[0],
-                'client_id': row[1],
-                'client_name': row[6],
-                'project_name': row[2],
-                'date': row[3],
-                'total_amount': row[4],
-                'status': row[5],
-                'notes': row[7]
-            })
-        
-        return quotes
+        return [{
+            'quote_id': row['quote_id'],
+            'client_id': row['client_id'],
+            'client_name': row['company_name'],
+            'project_name': row['project_name'],
+            'date': row['date'],
+            'total_amount': row['total_amount'],
+            'status': row['status'],
+            'notes': row['notes']
+        } for row in rows]
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @app.get('/quotes/{quote_id}', response_model=dict)
 def get_quote(quote_id: str, current_user: dict = Depends(verify_token)):
@@ -543,130 +550,109 @@ def delete_quote(quote_id: str, current_user: dict = Depends(verify_token)):
 
 @app.post('/quotes/{quote_id}/duplicate')
 def duplicate_quote(quote_id: str, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    conn = None
     try:
-        quote = cursor.execute('SELECT * FROM quotes WHERE quote_id = ?', (quote_id,)).fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get quote
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        quote = cursor.fetchone()
         if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
         
-        items = cursor.execute('SELECT * FROM quote_items WHERE quote_id = ?', (quote_id,)).fetchall()
+        # Get items
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (quote_id,))
+        items = cursor.fetchall()
         
+        # Generate new ID
         year = datetime.now().year
-        last_quote = cursor.execute(
-            'SELECT quote_id FROM quotes WHERE quote_id LIKE ? ORDER BY quote_id DESC LIMIT 1',
-            (f'COT-{year}-%',)
-        ).fetchone()
+        cursor.execute('SELECT quote_id FROM quotes WHERE quote_id LIKE %s ORDER BY quote_id DESC LIMIT 1', (f'COT-{year}-%',))
+        last_quote = cursor.fetchone()
+        new_quote_id = f'COT-{year}-{int(last_quote["quote_id"].split("-")[-1]) + 1:03d}' if last_quote else f'COT-{year}-001'
         
-        if last_quote:
-            num = int(last_quote[0].split('-')[-1])
-            new_quote_id = f'COT-{year}-{num+1:03d}'
-        else:
-            new_quote_id = f'COT-{year}-001'
-        
+        # Insert new quote
         cursor.execute('''
             INSERT INTO quotes (quote_id, client_id, project_name, date, total_amount, status, notes, included_charges)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             new_quote_id,
-            quote[2],
-            quote[3],
+            quote['client_id'],
+            quote['project_name'],
             datetime.now().strftime('%Y-%m-%d'),
-            quote[5],
+            quote['total_amount'],
             'Draft',
-            quote[7],
-            quote[8]
+            quote['notes'],
+            quote['included_charges']
         ))
         
+        # Insert items
         for item in items:
             cursor.execute('''
                 INSERT INTO quote_items (quote_id, product_name, quantity, unit_price, discount_type, discount_value)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s)
             ''', (
                 new_quote_id,
-                item[2],
-                item[3],
-                item[4],
-                item[5],
-                item[6]
+                item['product_name'],
+                item['quantity'],
+                item['unit_price'],
+                item['discount_type'],
+                item['discount_value']
             ))
         
         conn.commit()
-        
-        return {
-            'quote_id': new_quote_id,
-            'message': 'Quote duplicated successfully'
-        }
+        return {'quote_id': new_quote_id, 'message': 'Quote duplicated successfully'}
+    
     except HTTPException:
         raise
     except Exception as e:
-        conn.rollback()
+        if conn: conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.post('/quotes/{quote_id}/convert-to-invoice')
 def convert_to_invoice(quote_id: str, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    conn = None
     try:
-        # Verify quote exists and is in Draft status
-        quote = cursor.execute('SELECT * FROM quotes WHERE quote_id = ?', (quote_id,)).fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verify quote exists and is Draft
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        quote = cursor.fetchone()
         if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
-        
-        if quote[6] != 'Draft':  # status column
-            raise HTTPException(status_code=400, detail=f'Only Draft quotes can be converted to invoice. Current status: {quote[6]}')
+        if quote['status'] != 'Draft':
+            raise HTTPException(status_code=400, detail=f'Only Draft quotes can be converted. Current status: {quote["status"]}')
         
         # Generate invoice ID
         invoice_id = quote_id.replace('COT-', 'INV-')
         
-        # Check if invoice already exists
-        existing = cursor.execute('SELECT quote_id FROM quotes WHERE quote_id = ?', (invoice_id,)).fetchone()
-        if existing:
+        # Check if invoice exists
+        cursor.execute('SELECT 1 FROM quotes WHERE quote_id = %s', (invoice_id,))
+        if cursor.fetchone():
             raise HTTPException(status_code=400, detail=f'Invoice {invoice_id} already exists')
         
-        # Update quote to invoice (update status first to avoid constraint issues)
-        cursor.execute('''
-            UPDATE quotes 
-            SET status = 'Invoiced'
-            WHERE quote_id = ?
-        ''', (quote_id,))
-        
-        # Update quote_id AFTER status update
-        cursor.execute('''
-            UPDATE quotes 
-            SET quote_id = ?
-            WHERE quote_id = ?
-        ''', (invoice_id, quote_id))
-        
-        # Update items quote_id
-        cursor.execute('''
-            UPDATE quote_items 
-            SET quote_id = ?
-            WHERE quote_id = ?
-        ''', (invoice_id, quote_id))
+        # Update status first
+        cursor.execute('UPDATE quotes SET status = %s WHERE quote_id = %s', ('Invoiced', quote_id))
+        # Update quote_id
+        cursor.execute('UPDATE quotes SET quote_id = %s WHERE quote_id = %s', (invoice_id, quote_id))
+        # Update items
+        cursor.execute('UPDATE quote_items SET quote_id = %s WHERE quote_id = %s', (invoice_id, quote_id))
         
         conn.commit()
-        
-        return {
-            'invoice_id': invoice_id,
-            'message': 'Quote converted to invoice successfully',
-            'status': 'Invoiced'
-        }
+        return {'invoice_id': invoice_id, 'message': 'Quote converted to invoice successfully', 'status': 'Invoiced'}
     
     except HTTPException:
-        conn.rollback()
+        if conn: conn.rollback()
         raise
     except Exception as e:
-        conn.rollback()
-        error_msg = f"Conversion failed: {str(e)}"
-        print(f"❌ {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+        if conn: conn.rollback()
+        print(f"Conversion error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f'Conversion failed: {str(e)}')
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.put('/quotes/{quote_id}/status')
 def update_quote_status(quote_id: str, status_update: StatusUpdate, current_user: dict = Depends(verify_token)):
@@ -702,95 +688,86 @@ def update_quote_status(quote_id: str, status_update: StatusUpdate, current_user
 # FIXED PDF ENDPOINT - Using ONLY fpdf2 (NO ReportLab)
 @app.get('/quotes/{quote_id}/pdf')
 def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
-    """Generate PDF using fpdf2 only - NO ReportLab dependency"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    """Generate PDF using fpdf2 with PostgreSQL"""
+    conn = None
     try:
-        # Get quote data
-        quote = cursor.execute('SELECT * FROM quotes WHERE quote_id = ?', (quote_id,)).fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get quote (PostgreSQL syntax)
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        quote = cursor.fetchone()
         if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
         
-        client = cursor.execute('SELECT * FROM clients WHERE id = ?', (quote[2],)).fetchone()
+        # Get client
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (quote['client_id'],))
+        client = cursor.fetchone()
         if not client:
             raise HTTPException(status_code=404, detail='Client not found')
         
-        items = cursor.execute('SELECT * FROM quote_items WHERE quote_id = ?', (quote_id,)).fetchall()
+        # Get items
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (quote_id,))
+        items = cursor.fetchall()
         
-        # Parse charges safely
+        # Parse charges
         try:
-            charges = json.loads(quote[8])
+            charges = json.loads(quote['included_charges'])
         except:
-            charges = {
-                'supervision': True,
-                'admin': True,
-                'insurance': True,
-                'transport': True,
-                'contingency': True
-            }
+            charges = {'supervision': True, 'admin': True, 'insurance': True, 'transport': True, 'contingency': True}
         
-        # Create PDF with fpdf2
+        # Create PDF
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        
-        # Header
         pdf.set_font('Arial', 'B', 16)
         pdf.cell(0, 10, 'COTIZACION / QUOTE', 0, 1, 'C')
         pdf.ln(5)
         pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 10, f'ID: {quote[1]}', 0, 1)
+        pdf.cell(0, 10, f'ID: {quote["quote_id"]}', 0, 1)
         pdf.ln(5)
         
-        # Client Info
+        # Client info (using dictionary access)
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(0, 8, 'CLIENTE / CLIENT', 0, 1)
         pdf.set_font('Arial', '', 10)
-        pdf.cell(0, 6, f'Empresa: {client[1]}', 0, 1)
-        if client[2]: pdf.cell(0, 6, f'Contacto: {client[2]}', 0, 1)
-        if client[3]: pdf.cell(0, 6, f'Email: {client[3]}', 0, 1)
-        if client[4]: pdf.cell(0, 6, f'Telefono: {client[4]}', 0, 1)
-        if client[5]: pdf.cell(0, 6, f'Direccion: {client[5]}', 0, 1)
-        if client[6]: pdf.cell(0, 6, f'RNC: {client[6]}', 0, 1)
+        pdf.cell(0, 6, f'Empresa: {client["company_name"]}', 0, 1)
+        if client.get('contact_name'): pdf.cell(0, 6, f'Contacto: {client["contact_name"]}', 0, 1)
+        if client.get('email'): pdf.cell(0, 6, f'Email: {client["email"]}', 0, 1)
+        if client.get('phone'): pdf.cell(0, 6, f'Telefono: {client["phone"]}', 0, 1)
+        if client.get('address'): pdf.cell(0, 6, f'Direccion: {client["address"]}', 0, 1)
+        if client.get('tax_id'): pdf.cell(0, 6, f'RNC: {client["tax_id"]}', 0, 1)
         pdf.ln(5)
         
-        # Project & Date
-        if quote[3]:
+        # Project & date
+        if quote.get('project_name'):
             pdf.set_font('Arial', 'B', 10)
             pdf.cell(0, 8, 'PROYECTO / PROJECT', 0, 1)
             pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 6, f'Nombre: {quote[3]}', 0, 1)
+            pdf.cell(0, 6, f'Nombre: {quote["project_name"]}', 0, 1)
             pdf.ln(3)
         
         pdf.set_font('Arial', '', 10)
-        pdf.cell(0, 6, f'Fecha / Date: {quote[4]}', 0, 1)
+        pdf.cell(0, 6, f'Fecha / Date: {quote["date"]}', 0, 1)
         pdf.ln(8)
         
-        # Items Table
+        # Items table
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(0, 8, 'ITEMS / PRODUCTOS', 0, 1)
         pdf.ln(2)
-        
-        # Table Header
         pdf.set_font('Arial', 'B', 9)
         pdf.cell(20, 8, 'Qty', 1, 0, 'C')
         pdf.cell(85, 8, 'Descripcion', 1, 0)
         pdf.cell(25, 8, 'Precio', 1, 0, 'R')
         pdf.cell(25, 8, 'Total', 1, 1, 'R')
         
-        # Table Body
         pdf.set_font('Arial', '', 9)
         items_total = 0
-        
         for item in items:
-            qty = float(item[3] or 0)
-            price = float(item[4] or 0)
+            qty = float(item['quantity'] or 0)
+            price = float(item['unit_price'] or 0)
             subtotal = qty * price
             items_total += subtotal
-            
-            product_name = str(item[2])[:40] if item[2] else 'Item'
-            
+            product_name = str(item['product_name'])[:40] if item.get('product_name') else 'Item'
             pdf.cell(20, 6, str(qty), 1, 0, 'C')
             pdf.cell(85, 6, product_name, 1, 0)
             pdf.cell(25, 6, f'${price:.2f}', 1, 0, 'R')
@@ -798,7 +775,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         pdf.ln(5)
         
-        # Totals Calculation
+        # Totals
         items_after_discount = items_total
         supervision = items_after_discount * 0.10 if charges.get('supervision') else 0
         admin = items_after_discount * 0.04 if charges.get('admin') else 0
@@ -810,7 +787,6 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         itbis = subtotal * 0.18
         grand_total = subtotal + itbis
         
-        # Totals Display
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(120, 6, 'SUBTOTAL:', 0, 0)
         pdf.cell(45, 6, f'${subtotal:.2f}', 0, 1, 'R')
@@ -821,31 +797,25 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(120, 10, 'TOTAL:', 0, 0)
         pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
         
-        # Footer
         pdf.ln(15)
         pdf.set_font('Arial', 'I', 8)
         pdf.cell(0, 6, 'METPRO ERP - Sistema de Gestion Empresarial', 0, 1, 'C')
         pdf.cell(0, 6, f'Generado: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'C')
         
-        # Output PDF bytes (fpdf2 returns bytes directly)
         pdf_bytes = pdf.output()
-        
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf',
-                'Content-Length': str(len(pdf_bytes))
-            }
+            headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
         )
     
     except Exception as e:
         print(f"PDF Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f'PDF generation failed: {str(e)}')
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
-# Authentication endpoint
 # Authentication endpoint - REAL database authentication
 @app.post('/auth/login')
 def login(login_data: LoginRequest):
