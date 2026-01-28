@@ -45,7 +45,6 @@ def get_db_connection():
         row_factory=dict_row
     )
 
-# CORS Configuration
 # CORS Configuration - Allow frontend origins
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +59,8 @@ app.add_middleware(
     allow_headers=['*'],
     expose_headers=['*']
 )
+
+
 # Simple health check endpoint
 @app.get("/health")
 def health():
