@@ -1023,4 +1023,4 @@ async def import_products_csv(file: UploadFile = File(...), current_user: dict =
     finally:
         conn.close()
         
-     # force redeploy
+     # redeploy after removing env
