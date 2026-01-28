@@ -39,10 +39,12 @@ security = HTTPBearer()
 app = FastAPI(title='METPRO ERP API')
 
 def get_db_connection():
-    """Get a new database connection to Supabase PostgreSQL"""
+    """Get a new database connection to Supabase PostgreSQL (IPv4 only)"""
     return psycopg.connect(
         DATABASE_URL,
-        row_factory=dict_row
+        row_factory=dict_row,
+        connect_timeout=10,
+        options='-c statement_timeout=5000'
     )
 
 # CORS Configuration - Allow frontend origins
@@ -1020,3 +1022,5 @@ async def import_products_csv(file: UploadFile = File(...), current_user: dict =
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+        
+     # force redeploy
