@@ -896,13 +896,20 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         pdf.ln(8)
         
-        # === CRITICAL FIX: Always show breakdown with actual values ===
+        # Show surcharge breakdown BEFORE subtotal
         pdf.set_font('Arial', 'B', 10)
-        pdf.cell(120, 7, 'SUBTOTAL ITEMS:', 0, 0)
-        pdf.cell(45, 7, f'${items_after_discount:.2f}', 0, 1, 'R')
+        pdf.cell(120, 6, 'SUBTOTAL ITEMS:', 0, 0)
+        pdf.cell(45, 6, f'${items_after_discount:.2f}', 0, 1, 'R')
         pdf.ln(2)
-        
-        # Show ONLY enabled surcharges with their ACTUAL percentages
+
+        # Get percentages safely (with defaults for old quotes)
+        supervision_pct = float(charges.get('supervision_percentage', 10.0)) if charges.get('supervision') else 0
+        admin_pct = float(charges.get('admin_percentage', 4.0)) if charges.get('admin') else 0
+        insurance_pct = float(charges.get('insurance_percentage', 1.0)) if charges.get('insurance') else 0
+        transport_pct = float(charges.get('transport_percentage', 3.0)) if charges.get('transport') else 0
+        contingency_pct = float(charges.get('contingency_percentage', 3.0)) if charges.get('contingency') else 0
+
+        # Display ONLY enabled surcharges
         if charges.get('supervision'):
             pdf.set_font('Arial', '', 10)
             pdf.cell(120, 6, f'Supervision ({supervision_pct:.1f}%):', 0, 0)
@@ -923,6 +930,17 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             pdf.set_font('Arial', '', 10)
             pdf.cell(120, 6, f'Contingencia ({contingency_pct:.1f}%):', 0, 0)
             pdf.cell(45, 6, f'${contingency:.2f}', 0, 1, 'R')
+
+        pdf.ln(2)
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(120, 6, 'SUBTOTAL:', 0, 0)
+        pdf.cell(45, 6, f'${subtotal_general:.2f}', 0, 1, 'R')
+        pdf.cell(120, 6, 'ITBIS (18%):', 0, 0)
+        pdf.cell(45, 6, f'${itbis:.2f}', 0, 1, 'R')
+        pdf.ln(2)
+        pdf.set_font('Arial', 'B', 14)
+        pdf.cell(120, 10, 'TOTAL:', 0, 0)
+        pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
         
         pdf.ln(3)
         pdf.set_font('Arial', 'B', 11)
