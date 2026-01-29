@@ -813,7 +813,30 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
                 'transport': True,
                 'contingency': True
             }
-        
+        # Parse charges
+        try:
+            charges = json.loads(quote['included_charges'])
+            print(f"\n=== DEBUG PDF for {quote_id} ===")
+            print(f"Charges raw: {quote['included_charges']}")
+            print(f"Charges parsed: {charges}")
+            print(f"supervision exists: {'supervision' in charges}")
+            print(f"supervision value: {charges.get('supervision')}")
+            print(f"supervision_percentage exists: {'supervision_percentage' in charges}")
+            print(f"supervision_percentage value: {charges.get('supervision_percentage')}")
+            print(f"admin exists: {'admin' in charges}")
+            print(f"admin value: {charges.get('admin')}")
+            print(f"admin_percentage exists: {'admin_percentage' in charges}")
+            print(f"admin_percentage value: {charges.get('admin_percentage')}")
+        except Exception as e:
+            print(f"ERROR parsing charges: {e}")
+            charges = {
+                'supervision': True, 'supervision_percentage': 10.0,
+                'admin': True, 'admin_percentage': 4.0,
+                'insurance': True, 'insurance_percentage': 1.0,
+                'transport': True, 'transport_percentage': 3.0,
+                'contingency': True, 'contingency_percentage': 3.0
+            }
+
         # Calculate base amounts
         items_total = sum(float(item['quantity'] or 0) * float(item['unit_price'] or 0) for item in items)
         
@@ -903,7 +926,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         pdf.ln(8)
         
-        # Show surcharge breakdown BEFORE subtotal
+        # Show surcharge breakdown BEFORE subtotal - DEBUG MODE
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(120, 6, 'SUBTOTAL ITEMS:', 0, 0)
         pdf.cell(45, 6, f'${items_after_discount:.2f}', 0, 1, 'R')
@@ -916,27 +939,26 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         transport_pct = float(charges.get('transport_percentage', 3.0)) if charges.get('transport') else 0
         contingency_pct = float(charges.get('contingency_percentage', 3.0)) if charges.get('contingency') else 0
 
-        # Display ONLY enabled surcharges
-        if charges.get('supervision'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Supervision ({supervision_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${supervision:.2f}', 0, 1, 'R')
-        if charges.get('admin'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Administracion ({admin_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${admin:.2f}', 0, 1, 'R')
-        if charges.get('insurance'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Seguro ({insurance_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${insurance:.2f}', 0, 1, 'R')
-        if charges.get('transport'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Transporte ({transport_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${transport:.2f}', 0, 1, 'R')
-        if charges.get('contingency'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Contingencia ({contingency_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${contingency:.2f}', 0, 1, 'R')
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(0, 6, '[DEBUG] Surcharge Breakdown:', 0, 1)
+        pdf.ln(1)
+
+        # ALWAYS show all surcharges for debugging (even if disabled)
+        pdf.set_font('Arial', '', 9)
+        pdf.cell(120, 6, f'Supervision (enabled={charges.get("supervision", False)}):', 0, 0)
+        pdf.cell(45, 6, f'{supervision_pct:.1f}% = ${supervision:.2f}', 0, 1, 'R')
+
+        pdf.cell(120, 6, f'Admin (enabled={charges.get("admin", False)}):', 0, 0)
+        pdf.cell(45, 6, f'{admin_pct:.1f}% = ${admin:.2f}', 0, 1, 'R')
+
+        pdf.cell(120, 6, f'Insurance (enabled={charges.get("insurance", False)}):', 0, 0)
+        pdf.cell(45, 6, f'{insurance_pct:.1f}% = ${insurance:.2f}', 0, 1, 'R')
+
+        pdf.cell(120, 6, f'Transport (enabled={charges.get("transport", False)}):', 0, 0)
+        pdf.cell(45, 6, f'{transport_pct:.1f}% = ${transport:.2f}', 0, 1, 'R')
+
+        pdf.cell(120, 6, f'Contingency (enabled={charges.get("contingency", False)}):', 0, 0)
+        pdf.cell(45, 6, f'{contingency_pct:.1f}% = ${contingency:.2f}', 0, 1, 'R')
 
         pdf.ln(2)
         pdf.set_font('Arial', 'B', 10)
