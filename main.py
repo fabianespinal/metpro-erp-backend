@@ -16,6 +16,7 @@ import json
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from supabase import create_client, Client
 import csv
 import io
 from fpdf import FPDF
@@ -43,6 +44,11 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 security = HTTPBearer()
 
 app = FastAPI(title='METPRO ERP API')
+
+# Supabase Storage configuration
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://qbyectandmkdmajzolzb.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_KEY else None
 
 def get_db_connection():
     """Get a new database connection to Supabase PostgreSQL (IPv4 only)"""
@@ -708,16 +714,43 @@ def update_quote_status(quote_id: str, status_update: StatusUpdate, current_user
         if conn:
             conn.close()
 
+@app.get('/quotes/{quote_id}/download')
+def download_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
+    """Download PDF from Supabase Storage (if exists)"""
+    if not supabase:
+        raise HTTPException(status_code=500, detail='Storage not configured')
+    
+    try:
+        file_path = f"{quote_id}.pdf"
+        
+        # Check if file exists in storage
+        try:
+            file_data = supabase.storage.from_("pdfs").download(file_path)
+            return StreamingResponse(
+                io.BytesIO(file_data),
+                media_type='application/pdf',
+                headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
+            )
+        except Exception as e:
+            # File doesn't exist - generate it
+            print(f"PDF not in storage, generating: {str(e)}")
+            raise HTTPException(status_code=404, detail='PDF not found - please generate it first')
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Download failed: {str(e)}')
+
 # FIXED PDF ENDPOINT - Using ONLY fpdf2 (NO ReportLab)
 @app.get('/quotes/{quote_id}/pdf')
 def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
-    """Generate PDF using fpdf2 with PostgreSQL"""
+    """Generate PDF and store in Supabase Storage"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Get quote (PostgreSQL syntax)
+        # Get quote
         cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
         quote = cursor.fetchone()
         if not quote:
@@ -749,7 +782,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(0, 10, f'ID: {quote["quote_id"]}', 0, 1)
         pdf.ln(5)
         
-        # Client info (using dictionary access)
+        # Client info
         pdf.set_font('Arial', 'B', 10)
         pdf.cell(0, 8, 'CLIENTE / CLIENT', 0, 1)
         pdf.set_font('Arial', '', 10)
@@ -825,7 +858,26 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(0, 6, 'METPRO ERP - Sistema de Gestion Empresarial', 0, 1, 'C')
         pdf.cell(0, 6, f'Generado: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'C')
         
+        # Save PDF to Supabase Storage
         pdf_bytes = pdf.output()
+        pdf_buffer = io.BytesIO(pdf_bytes)
+        
+        # Upload to Supabase Storage
+        if supabase:
+            file_path = f"{quote_id}.pdf"
+            try:
+                supabase.storage.from_("pdfs").upload(
+                    file_path,
+                    pdf_buffer.getvalue(),
+                    file_options={"content-type": "application/pdf"}
+                )
+                print(f"✅ PDF saved to Supabase Storage: {file_path}")
+            except Exception as e:
+                # File might already exist - that's OK
+                if "The resource already exists" not in str(e):
+                    print(f"⚠️ Warning: Could not save PDF to storage: {str(e)}")
+        
+        # Return PDF to user
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type='application/pdf',
