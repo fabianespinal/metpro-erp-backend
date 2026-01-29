@@ -381,12 +381,18 @@ def calculate_quote_totals(items: List[dict], charges: dict):
     transport_pct = charges.get('transport_percentage', 3.0)
     contingency_pct = charges.get('contingency_percentage', 3.0)
     
-    # Calculate with dynamic percentages
-    supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision', True) else 0
-    admin = items_after_discount * (admin_pct / 100) if charges.get('admin', True) else 0
-    insurance = items_after_discount * (insurance_pct / 100) if charges.get('insurance', True) else 0
-    transport = items_after_discount * (transport_pct / 100) if charges.get('transport', True) else 0
-    contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency', True) else 0
+    # Get percentages with safe defaults (for old quotes without percentage fields)
+    supervision_pct = charges.get('supervision_percentage', 10.0) if charges.get('supervision') else 0
+    admin_pct = charges.get('admin_percentage', 4.0) if charges.get('admin') else 0
+    insurance_pct = charges.get('insurance_percentage', 1.0) if charges.get('insurance') else 0
+    transport_pct = charges.get('transport_percentage', 3.0) if charges.get('transport') else 0
+    contingency_pct = charges.get('contingency_percentage', 3.0) if charges.get('contingency') else 0
+
+    supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision') else 0
+    admin = items_after_discount * (admin_pct / 100) if charges.get('admin') else 0
+    insurance = items_after_discount * (insurance_pct / 100) if charges.get('insurance') else 0
+    transport = items_after_discount * (transport_pct / 100) if charges.get('transport') else 0
+    contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency') else 0
     
     subtotal_general = items_after_discount + supervision + admin + insurance + transport + contingency
     itbis = subtotal_general * 0.18
@@ -941,28 +947,17 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.set_font('Arial', 'B', 14)
         pdf.cell(120, 10, 'TOTAL:', 0, 0)
         pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
-        
-        pdf.ln(3)
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(120, 7, 'SUBTOTAL:', 0, 0)
-        pdf.cell(45, 7, f'${subtotal_general:.2f}', 0, 1, 'R')
-        pdf.cell(120, 7, 'ITBIS (18%):', 0, 0)
-        pdf.cell(45, 7, f'${itbis:.2f}', 0, 1, 'R')
-        pdf.ln(3)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.cell(120, 10, 'TOTAL:', 0, 0)
-        pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
-        
+
         pdf.ln(15)
         pdf.set_font('Arial', 'I', 8)
         pdf.cell(0, 6, 'METPRO ERP - Sistema de Gestion Empresarial', 0, 1, 'C')
         pdf.cell(0, 6, f'Generado: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'C')
-        
+                
         pdf_bytes = pdf.output()
         return StreamingResponse(
-            io.BytesIO(pdf_bytes),
-            media_type='application/pdf',
-            headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
+        io.BytesIO(pdf_bytes),
+        media_type='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
         )
     
     except Exception as e:
