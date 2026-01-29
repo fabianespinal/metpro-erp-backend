@@ -20,6 +20,12 @@ import csv
 import io
 from fpdf import FPDF
 
+# Debugging output for DATABASE_URL
+dsn = os.environ.get("DATABASE_URL", "")
+print("DSN length:", len(dsn))
+print("DSN contains dot at end:", dsn.rstrip().endswith("."))
+print("DSN host:", dsn.split("@")[1].split("/")[0] if "@" in dsn else "MISSING")
+
 # Database configuration from .env
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -536,25 +542,33 @@ def get_quote(quote_id: str, current_user: dict = Depends(verify_token)):
 
 @app.delete('/quotes/{quote_id}')
 def delete_quote(quote_id: str, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    conn = None
     try:
-        cursor.execute('DELETE FROM quote_items WHERE quote_id = ?', (quote_id,))
-        cursor.execute('DELETE FROM quotes WHERE quote_id = ?', (quote_id,))
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        if cursor.rowcount == 0:
+        # Check if quote exists
+        cursor.execute('SELECT 1 FROM quotes WHERE quote_id = %s', (quote_id,))
+        if not cursor.fetchone():
             raise HTTPException(status_code=404, detail='Quote not found')
         
+        # Delete items first (foreign key constraint)
+        cursor.execute('DELETE FROM quote_items WHERE quote_id = %s', (quote_id,))
+        # Delete quote
+        cursor.execute('DELETE FROM quotes WHERE quote_id = %s', (quote_id,))
+        
         conn.commit()
-        return {'message': 'Quote deleted successfully'}
+        return {'message': 'Quote deleted successfully', 'quote_id': quote_id}
+    
     except HTTPException:
         raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Failed to delete quote: {str(e)}')
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @app.post('/quotes/{quote_id}/duplicate')
 def duplicate_quote(quote_id: str, current_user: dict = Depends(verify_token)):
@@ -664,34 +678,35 @@ def convert_to_invoice(quote_id: str, current_user: dict = Depends(verify_token)
 
 @app.put('/quotes/{quote_id}/status')
 def update_quote_status(quote_id: str, status_update: StatusUpdate, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    conn = None
     try:
-        quote = cursor.execute('SELECT * FROM quotes WHERE quote_id = ?', (quote_id,)).fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verify quote exists
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        quote = cursor.fetchone()
         if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
         
-        cursor.execute('''
-            UPDATE quotes 
-            SET status = ?
-            WHERE quote_id = ?
-        ''', (status_update.status, quote_id))
+        # Update status
+        cursor.execute(
+            'UPDATE quotes SET status = %s WHERE quote_id = %s',
+            (status_update.status, quote_id)
+        )
         
         conn.commit()
-        
-        return {
-            'quote_id': quote_id,
-            'status': status_update.status,
-            'message': 'Status updated successfully'
-        }
+        return {'message': 'Status updated successfully', 'quote_id': quote_id, 'status': status_update.status}
+    
     except HTTPException:
         raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Failed to update status: {str(e)}')
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 # FIXED PDF ENDPOINT - Using ONLY fpdf2 (NO ReportLab)
 @app.get('/quotes/{quote_id}/pdf')
@@ -1025,3 +1040,4 @@ async def import_products_csv(file: UploadFile = File(...), current_user: dict =
         
      # redeploy after removing env
      # redeploy trigger 
+     
