@@ -174,7 +174,8 @@ class QuoteBase(BaseModel):
     client_id: int
     project_name: Optional[str] = None
     notes: Optional[str] = None
-    included_charges: ChargeConfig = ChargeConfig()
+    items: List[QuoteItemCreate]
+    included_charges: IncludedCharges = IncludedCharges()  # ← FIXED
 
 class QuoteCreate(QuoteBase):
     items: List[QuoteItemBase]
