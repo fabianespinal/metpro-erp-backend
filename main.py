@@ -151,12 +151,17 @@ class Product(ProductBase):
     class Config:
         from_attributes = True
 
-class ChargeConfig(BaseModel):
+class IncludedCharges(BaseModel):
     supervision: bool = True
+    supervision_percentage: float = 10.0
     admin: bool = True
+    admin_percentage: float = 4.0
     insurance: bool = True
+    insurance_percentage: float = 1.0
     transport: bool = True
+    transport_percentage: float = 3.0
     contingency: bool = True
+    contingency_percentage: float = 3.0
 
 class QuoteItemBase(BaseModel):
     product_name: str
@@ -355,7 +360,7 @@ def delete_client(client_id: int, current_user: dict = Depends(verify_token)):
     finally:
         conn.close()
 
-# Quote calculation helper
+# Quote calculation helper (supports dynamic percentages)
 def calculate_quote_totals(items: List[dict], charges: dict):
     items_total = sum(item['quantity'] * item['unit_price'] for item in items)
     
@@ -369,17 +374,40 @@ def calculate_quote_totals(items: List[dict], charges: dict):
     
     items_after_discount = items_total - total_discounts
     
-    supervision = items_after_discount * 0.10 if charges.get('supervision', True) else 0
-    admin = items_after_discount * 0.04 if charges.get('admin', True) else 0
-    insurance = items_after_discount * 0.01 if charges.get('insurance', True) else 0
-    transport = items_after_discount * 0.03 if charges.get('transport', True) else 0
-    contingency = items_after_discount * 0.03 if charges.get('contingency', True) else 0
+    # Get percentages with backwards-compatible defaults
+    supervision_pct = charges.get('supervision_percentage', 10.0)
+    admin_pct = charges.get('admin_percentage', 4.0)
+    insurance_pct = charges.get('insurance_percentage', 1.0)
+    transport_pct = charges.get('transport_percentage', 3.0)
+    contingency_pct = charges.get('contingency_percentage', 3.0)
+    
+    # Calculate with dynamic percentages
+    supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision', True) else 0
+    admin = items_after_discount * (admin_pct / 100) if charges.get('admin', True) else 0
+    insurance = items_after_discount * (insurance_pct / 100) if charges.get('insurance', True) else 0
+    transport = items_after_discount * (transport_pct / 100) if charges.get('transport', True) else 0
+    contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency', True) else 0
     
     subtotal_general = items_after_discount + supervision + admin + insurance + transport + contingency
     itbis = subtotal_general * 0.18
     grand_total = subtotal_general + itbis
     
     return {
+        'items_total': round(items_total, 2),
+        'total_discounts': round(total_discounts, 2),
+        'items_after_discount': round(items_after_discount, 2),
+        'supervision': round(supervision, 2),
+        'admin': round(admin, 2),
+        'insurance': round(insurance, 2),
+        'transport': round(transport, 2),
+        'contingency': round(contingency, 2),
+        'subtotal_general': round(subtotal_general, 2),
+        'itbis': round(itbis, 2),
+        'grand_total': round(grand_total, 2)
+    }
+    
+    return {
+
         'items_total': round(items_total, 2),
         'total_discounts': round(total_discounts, 2),
         'items_after_discount': round(items_after_discount, 2),
@@ -741,10 +769,9 @@ def download_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Download failed: {str(e)}')
 
-# FIXED PDF ENDPOINT - Using ONLY fpdf2 (NO ReportLab)
 @app.get('/quotes/{quote_id}/pdf')
 def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
-    """Generate PDF and store in Supabase Storage"""
+    """Generate PDF with surcharge breakdown (supports old and new quotes)"""
     conn = None
     try:
         conn = get_db_connection()
@@ -766,11 +793,51 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (quote_id,))
         items = cursor.fetchall()
         
-        # Parse charges
+        # Parse charges with FULL backwards compatibility
         try:
             charges = json.loads(quote['included_charges'])
-        except:
-            charges = {'supervision': True, 'admin': True, 'insurance': True, 'transport': True, 'contingency': True}
+            print(f"DEBUG: Parsed charges: {charges}")
+        except Exception as e:
+            print(f"DEBUG: Failed to parse charges, using defaults. Error: {e}")
+            charges = {
+                'supervision': True,
+                'admin': True,
+                'insurance': True,
+                'transport': True,
+                'contingency': True
+            }
+        
+        # Calculate base amounts
+        items_total = sum(float(item['quantity'] or 0) * float(item['unit_price'] or 0) for item in items)
+        
+        # Calculate discounts
+        total_discounts = 0
+        for item in items:
+            subtotal = float(item['quantity'] or 0) * float(item['unit_price'] or 0)
+            if item.get('discount_type') == 'percentage':
+                total_discounts += subtotal * (float(item.get('discount_value', 0)) / 100)
+            elif item.get('discount_type') == 'fixed':
+                total_discounts += float(item.get('discount_value', 0))
+        
+        items_after_discount = items_total - total_discounts
+        
+        # Get percentages with SAFER defaults (works for old quotes without percentage fields)
+        supervision_pct = float(charges.get('supervision_percentage', 10.0)) if charges.get('supervision') else 0
+        admin_pct = float(charges.get('admin_percentage', 4.0)) if charges.get('admin') else 0
+        insurance_pct = float(charges.get('insurance_percentage', 1.0)) if charges.get('insurance') else 0
+        transport_pct = float(charges.get('transport_percentage', 3.0)) if charges.get('transport') else 0
+        contingency_pct = float(charges.get('contingency_percentage', 3.0)) if charges.get('contingency') else 0
+        
+        # Calculate surcharges
+        supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision') else 0
+        admin = items_after_discount * (admin_pct / 100) if charges.get('admin') else 0
+        insurance = items_after_discount * (insurance_pct / 100) if charges.get('insurance') else 0
+        transport = items_after_discount * (transport_pct / 100) if charges.get('transport') else 0
+        contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency') else 0
+        
+        subtotal_general = items_after_discount + supervision + admin + insurance + transport + contingency
+        itbis = subtotal_general * 0.18
+        grand_total = subtotal_general + itbis
         
         # Create PDF
         pdf = FPDF()
@@ -817,38 +884,53 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(25, 8, 'Total', 1, 1, 'R')
         
         pdf.set_font('Arial', '', 9)
-        items_total = 0
         for item in items:
             qty = float(item['quantity'] or 0)
             price = float(item['unit_price'] or 0)
             subtotal = qty * price
-            items_total += subtotal
             product_name = str(item['product_name'])[:40] if item.get('product_name') else 'Item'
             pdf.cell(20, 6, str(qty), 1, 0, 'C')
             pdf.cell(85, 6, product_name, 1, 0)
             pdf.cell(25, 6, f'${price:.2f}', 1, 0, 'R')
             pdf.cell(25, 6, f'${subtotal:.2f}', 1, 1, 'R')
         
-        pdf.ln(5)
+        pdf.ln(8)
         
-        # Totals
-        items_after_discount = items_total
-        supervision = items_after_discount * 0.10 if charges.get('supervision') else 0
-        admin = items_after_discount * 0.04 if charges.get('admin') else 0
-        insurance = items_after_discount * 0.01 if charges.get('insurance') else 0
-        transport = items_after_discount * 0.03 if charges.get('transport') else 0
-        contingency = items_after_discount * 0.03 if charges.get('contingency') else 0
-        
-        subtotal = items_after_discount + supervision + admin + insurance + transport + contingency
-        itbis = subtotal * 0.18
-        grand_total = subtotal + itbis
-        
+        # === CRITICAL FIX: Always show breakdown with actual values ===
         pdf.set_font('Arial', 'B', 10)
-        pdf.cell(120, 6, 'SUBTOTAL:', 0, 0)
-        pdf.cell(45, 6, f'${subtotal:.2f}', 0, 1, 'R')
-        pdf.cell(120, 6, 'ITBIS (18%):', 0, 0)
-        pdf.cell(45, 6, f'${itbis:.2f}', 0, 1, 'R')
+        pdf.cell(120, 7, 'SUBTOTAL ITEMS:', 0, 0)
+        pdf.cell(45, 7, f'${items_after_discount:.2f}', 0, 1, 'R')
         pdf.ln(2)
+        
+        # Show ONLY enabled surcharges with their ACTUAL percentages
+        if charges.get('supervision'):
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(120, 6, f'Supervision ({supervision_pct:.1f}%):', 0, 0)
+            pdf.cell(45, 6, f'${supervision:.2f}', 0, 1, 'R')
+        if charges.get('admin'):
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(120, 6, f'Administracion ({admin_pct:.1f}%):', 0, 0)
+            pdf.cell(45, 6, f'${admin:.2f}', 0, 1, 'R')
+        if charges.get('insurance'):
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(120, 6, f'Seguro ({insurance_pct:.1f}%):', 0, 0)
+            pdf.cell(45, 6, f'${insurance:.2f}', 0, 1, 'R')
+        if charges.get('transport'):
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(120, 6, f'Transporte ({transport_pct:.1f}%):', 0, 0)
+            pdf.cell(45, 6, f'${transport:.2f}', 0, 1, 'R')
+        if charges.get('contingency'):
+            pdf.set_font('Arial', '', 10)
+            pdf.cell(120, 6, f'Contingencia ({contingency_pct:.1f}%):', 0, 0)
+            pdf.cell(45, 6, f'${contingency:.2f}', 0, 1, 'R')
+        
+        pdf.ln(3)
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(120, 7, 'SUBTOTAL:', 0, 0)
+        pdf.cell(45, 7, f'${subtotal_general:.2f}', 0, 1, 'R')
+        pdf.cell(120, 7, 'ITBIS (18%):', 0, 0)
+        pdf.cell(45, 7, f'${itbis:.2f}', 0, 1, 'R')
+        pdf.ln(3)
         pdf.set_font('Arial', 'B', 14)
         pdf.cell(120, 10, 'TOTAL:', 0, 0)
         pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
@@ -858,26 +940,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(0, 6, 'METPRO ERP - Sistema de Gestion Empresarial', 0, 1, 'C')
         pdf.cell(0, 6, f'Generado: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'C')
         
-        # Save PDF to Supabase Storage
         pdf_bytes = pdf.output()
-        pdf_buffer = io.BytesIO(pdf_bytes)
-        
-        # Upload to Supabase Storage
-        if supabase:
-            file_path = f"{quote_id}.pdf"
-            try:
-                supabase.storage.from_("pdfs").upload(
-                    file_path,
-                    pdf_buffer.getvalue(),
-                    file_options={"content-type": "application/pdf"}
-                )
-                print(f"✅ PDF saved to Supabase Storage: {file_path}")
-            except Exception as e:
-                # File might already exist - that's OK
-                if "The resource already exists" not in str(e):
-                    print(f"⚠️ Warning: Could not save PDF to storage: {str(e)}")
-        
-        # Return PDF to user
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type='application/pdf',
@@ -885,13 +948,15 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         )
     
     except Exception as e:
-        print(f"PDF Error: {str(e)}")
+        print(f"PDF GENERATION ERROR for quote {quote_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f'PDF generation failed: {str(e)}')
     finally:
         if conn:
             conn.close()
 
-# Authentication endpoint - REAL database authentication
+
 # Authentication endpoint - REAL database authentication
 @app.post('/auth/login')
 def login(login_data: LoginRequest):
