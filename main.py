@@ -795,35 +795,23 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (quote_id,))
         items = cursor.fetchall()
         
-        # Parse charges with FULL backwards compatibility
+        # Parse charges with backwards-compatible defaults
         try:
             charges = json.loads(quote['included_charges'])
-            print(f"DEBUG: Parsed charges: {charges}")
-        except Exception as e:
-            print(f"DEBUG: Failed to parse charges, using defaults. Error: {e}")
-            charges = {
-                'supervision': True,
-                'admin': True,
-                'insurance': True,
-                'transport': True,
-                'contingency': True
+            # Add missing percentage fields for old quotes
+            defaults = {
+                'supervision_percentage': 10.0,
+                'admin_percentage': 4.0,
+                'insurance_percentage': 1.0,
+                'transport_percentage': 3.0,
+                'contingency_percentage': 3.0
             }
-        # Parse charges
-        try:
-            charges = json.loads(quote['included_charges'])
-           # print(f"\n=== DEBUG PDF for {quote_id} ===")
-           # print(f"Charges raw: {quote['included_charges']}")
-            print(f"Charges parsed: {charges}")
-            print(f"supervision exists: {'supervision' in charges}")
-            print(f"supervision value: {charges.get('supervision')}")
-            print(f"supervision_percentage exists: {'supervision_percentage' in charges}")
-            print(f"supervision_percentage value: {charges.get('supervision_percentage')}")
-            print(f"admin exists: {'admin' in charges}")
-            print(f"admin value: {charges.get('admin')}")
-            print(f"admin_percentage exists: {'admin_percentage' in charges}")
-            print(f"admin_percentage value: {charges.get('admin_percentage')}")
+            for key, default in defaults.items():
+                if key not in charges:
+                    charges[key] = default
         except Exception as e:
-            print(f"ERROR parsing charges: {e}")
+            print(f"Error parsing charges for {quote_id}: {e}")
+            # Fallback for completely broken data
             charges = {
                 'supervision': True, 'supervision_percentage': 10.0,
                 'admin': True, 'admin_percentage': 4.0,
@@ -831,7 +819,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
                 'transport': True, 'transport_percentage': 3.0,
                 'contingency': True, 'contingency_percentage': 3.0
             }
-
+        
         # Calculate base amounts
         items_total = sum(float(item['quantity'] or 0) * float(item['unit_price'] or 0) for item in items)
         
@@ -846,12 +834,12 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         items_after_discount = items_total - total_discounts
         
-        # Get percentages with SAFER defaults (works for old quotes without percentage fields)
-        supervision_pct = float(charges.get('supervision_percentage', 10.0)) if charges.get('supervision') else 0
-        admin_pct = float(charges.get('admin_percentage', 4.0)) if charges.get('admin') else 0
-        insurance_pct = float(charges.get('insurance_percentage', 1.0)) if charges.get('insurance') else 0
-        transport_pct = float(charges.get('transport_percentage', 3.0)) if charges.get('transport') else 0
-        contingency_pct = float(charges.get('contingency_percentage', 3.0)) if charges.get('contingency') else 0
+        # Get percentages safely (works for old AND new quotes)
+        supervision_pct = float(charges.get('supervision_percentage', 10.0))
+        admin_pct = float(charges.get('admin_percentage', 4.0))
+        insurance_pct = float(charges.get('insurance_percentage', 1.0))
+        transport_pct = float(charges.get('transport_percentage', 3.0))
+        contingency_pct = float(charges.get('contingency_percentage', 3.0))
         
         # Calculate surcharges
         supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision') else 0
@@ -927,14 +915,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(45, 6, f'${items_after_discount:.2f}', 0, 1, 'R')
         pdf.ln(2)
 
-        # Get percentages safely (with defaults for old quotes)
-        supervision_pct = float(charges.get('supervision_percentage', 10.0)) if charges.get('supervision') else 0
-        admin_pct = float(charges.get('admin_percentage', 4.0)) if charges.get('admin') else 0
-        insurance_pct = float(charges.get('insurance_percentage', 1.0)) if charges.get('insurance') else 0
-        transport_pct = float(charges.get('transport_percentage', 3.0)) if charges.get('transport') else 0
-        contingency_pct = float(charges.get('contingency_percentage', 3.0)) if charges.get('contingency') else 0
-
-        # Display ONLY enabled surcharges
+        # Display ONLY enabled surcharges with actual percentages
         if charges.get('supervision'):
             pdf.set_font('Arial', '', 10)
             pdf.cell(120, 6, f'Supervision ({supervision_pct:.1f}%):', 0, 0)
@@ -974,9 +955,9 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
                 
         pdf_bytes = pdf.output()
         return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type='application/pdf',
-        headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
+            io.BytesIO(pdf_bytes),
+            media_type='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
         )
     
     except Exception as e:
@@ -987,207 +968,3 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
     finally:
         if conn:
             conn.close()
-
-
-# Authentication endpoint - REAL database authentication
-@app.post('/auth/login')
-def login(login_data: LoginRequest):
-    """Login endpoint that checks Supabase database"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Get user from database
-        cursor.execute(
-            'SELECT id, username, email, hashed_password, role, is_active FROM users WHERE username = %s',
-            (login_data.username,)
-        )
-        user = cursor.fetchone()
-
-        # Check if user exists
-        if not user:
-            raise HTTPException(status_code=401, detail='Invalid username or password')
-
-        # Check if user is active
-        if not user['is_active']:
-            raise HTTPException(status_code=403, detail='Account is deactivated')
-
-        # Verify password
-        if not pwd_context.verify(login_data.password, user['hashed_password']):
-            raise HTTPException(status_code=401, detail='Invalid username or password')
-
-        # Create JWT token
-        access_token = create_access_token(data={
-            'sub': user['username'],
-            'user_id': user['id'],
-            'role': user['role']
-        })
-
-        return {
-            'access_token': access_token,
-            'token_type': 'bearer',
-            'username': user['username'],
-            'email': user['email'],
-            'role': user['role'],
-            'message': 'Login successful'
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Login error: {str(e)}")
-        raise HTTPException(status_code=500, detail='Internal server error')
-    finally:
-        if conn:
-            conn.close()
-
-# Product Endpoints (same as before - no changes needed)
-@app.post('/products/', response_model=Product)
-def create_product(product: ProductBase, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute('''
-            INSERT INTO products (name, description, unit_price)
-            VALUES (?, ?, ?)
-        ''', (product.name, product.description, product.unit_price))
-        
-        product_id = cursor.lastrowid
-        conn.commit()
-        return Product(id=product_id, **product.model_dump())
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail='Product name already exists')
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.get('/products/', response_model=List[Product])
-def get_products(current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('SELECT * FROM products ORDER BY name')
-        rows = cursor.fetchall()
-        return [
-            Product(id=row[0], name=row[1], description=row[2], unit_price=row[3])
-            for row in rows
-        ]
-    finally:
-        conn.close()
-
-@app.get('/products/{product_id}', response_model=Product)
-def get_product(product_id: int, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        row = cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail='Product not found')
-        return Product(id=row[0], name=row[1], description=row[2], unit_price=row[3])
-    finally:
-        conn.close()
-
-@app.put('/products/{product_id}', response_model=Product)
-def update_product(product_id: int, product: ProductBase, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('''
-            UPDATE products SET name = ?, description = ?, unit_price = ? WHERE id = ?
-        ''', (product.name, product.description, product.unit_price, product_id))
-        
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail='Product not found')
-        
-        conn.commit()
-        
-        row = cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
-        return Product(id=row[0], name=row[1], description=row[2], unit_price=row[3])
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.delete('/products/{product_id}')
-def delete_product(product_id: int, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
-        
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail='Product not found')
-        
-        conn.commit()
-        return {'message': 'Product deleted successfully'}
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.post('/products/import-csv')
-async def import_products_csv(file: UploadFile = File(...), current_user: dict = Depends(verify_token)):
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail='File must be CSV')
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        content = await file.read()
-        csv_text = content.decode('utf-8')
-        csv_reader = csv.DictReader(io.StringIO(csv_text))
-        
-        imported = 0
-        skipped = 0
-        
-        for row in csv_reader:
-            try:
-                name = row.get('name', '').strip()
-                if not name:
-                    skipped += 1
-                    continue
-                
-                description = row.get('description', '').strip()
-                unit_price = float(row.get('unit_price', 0))
-                
-                cursor.execute('''
-                    INSERT INTO products (name, description, unit_price)
-                    VALUES (?, ?, ?)
-                ''', (name, description, unit_price))
-                
-                imported += 1
-            except:
-                skipped += 1
-        
-        conn.commit()
-        
-        return {
-            'imported': imported,
-            'skipped': skipped,
-            'message': f'Successfully imported {imported} products, skipped {skipped}'
-        }
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-        
-     # redeploy after removing env
-     # redeploy trigger 
-     # ← FIXED
-     
