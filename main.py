@@ -517,9 +517,18 @@ def delete_quote(quote_id: str, current_user: dict = Depends(verify_token)):
         conn = get_db_connection()
         cursor = conn.cursor()
         # Check if quote exists
-        cursor.execute('SELECT 1 FROM quotes WHERE quote_id = %s', (quote_id,))
-        if not cursor.fetchone():
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        quote = cursor.fetchone()
+        if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
+        
+        # PREVENT DELETING INVOICED QUOTES (critical business rule)
+        if quote['status'] == 'Invoiced':
+            raise HTTPException(
+                status_code=403, 
+                detail='Cannot delete invoiced quotes. Invoices must be cancelled through accounting procedures.'
+            )
+        
         # Delete items first (foreign key constraint)
         cursor.execute('DELETE FROM quote_items WHERE quote_id = %s', (quote_id,))
         # Delete quote
