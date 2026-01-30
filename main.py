@@ -757,195 +757,293 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         itbis = subtotal_general * 0.18
         grand_total = subtotal_general + itbis
         
-        # Create PDF with exact METPRO branding
+        # Create PDF with modernized design
         pdf = FPDF()
         pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
         
-        # ==================== HEADER: METPRO BRANDING ====================
-        pdf.set_font('Arial', 'B', 16)
-        pdf.cell(0, 8, 'METPRO', 0, 1, 'C')
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(0, 6, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        # ==================== HEADER: METPRO BRANDING (MODERNIZED) ====================
+        pdf.set_font('Arial', 'B', 20)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 8, 'METPRO', 0, 1, 'L')
+        
         pdf.set_font('Arial', '', 8)
-        pdf.cell(0, 5, 'Calle Principal #123, Ensanche La Fe', 0, 1, 'C')
-        pdf.cell(0, 5, 'Santo Domingo, República Dominicana', 0, 1, 'C')
-        pdf.cell(0, 5, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
-        pdf.ln(5)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 4, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'L')
         
-        # ==================== TITLE: COTIZACIÓN ====================
-        pdf.set_font('Arial', 'B', 18)
-        pdf.cell(0, 10, 'COTIZACIÓN', 0, 1, 'C')
-        pdf.ln(3)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, República Dominicana', 0, 1, 'L')
+        pdf.cell(0, 3, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'L')
         
-        # ==================== SECTION: DATOS PEDIDO ====================
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(0, 7, 'DATOS PEDIDO', 0, 1, 'L')
-        pdf.ln(2)
+        pdf.ln(8)
         
-        # Quote number and date table
-        pdf.set_font('Arial', 'B', 9)
-        pdf.cell(40, 6, 'NÚMERO DE COTIZACIÓN:', 0, 0)
-        pdf.set_font('Arial', '', 9)
-        pdf.cell(60, 6, f'{quote["quote_id"]}', 0, 0)
-        pdf.set_font('Arial', 'B', 9)
-        pdf.cell(40, 6, 'FECHA:', 0, 0)
-        pdf.set_font('Arial', '', 9)
-        pdf.cell(50, 6, f'{quote["date"]}', 0, 1)
-        pdf.ln(2)
+        # ==================== TITLE: COTIZACIÓN (REFINED) ====================
+        pdf.set_font('Arial', 'B', 14)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 7, 'COTIZACIÓN', 0, 1, 'L')
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(6)
         
-        # Project name
+        # ==================== QUOTE INFO & CLIENT (TWO COLUMNS) ====================
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(100, 100, 100)
+        
+        # Left column: Quote info
+        left_x = 10
+        right_x = 110
+        start_y = pdf.get_y()
+        
+        pdf.set_xy(left_x, start_y)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Número de Cotización:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{quote["quote_id"]}', 0, 1)
+        
+        pdf.set_x(left_x)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Fecha:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{quote["date"]}', 0, 1)
+        
         if quote.get('project_name'):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(40, 6, 'PROYECTO:', 0, 0)
-            pdf.set_font('Arial', '', 9)
-            pdf.cell(0, 6, f'{quote["project_name"]}', 0, 1)
-            pdf.ln(2)
+            pdf.set_x(left_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(35, 4, 'Proyecto:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{quote["project_name"]}', 0, 1)
         
-        # ==================== SECTION: CLIENTE ====================
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(0, 7, 'CLIENTE', 0, 1, 'L')
-        pdf.ln(2)
-        
-        pdf.set_font('Arial', 'B', 9)
-        pdf.cell(30, 6, 'EMPRESA:', 0, 0)
-        pdf.set_font('Arial', '', 9)
-        pdf.cell(0, 6, f'{client["company_name"]}', 0, 1)
+        # Right column: Client info
+        pdf.set_xy(right_x, start_y)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(25, 4, 'Cliente:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{client["company_name"]}', 0, 1)
         
         if client.get('contact_name'):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(30, 6, 'CONTACTO:', 0, 0)
-            pdf.set_font('Arial', '', 9)
-            pdf.cell(0, 6, f'{client["contact_name"]}', 0, 1)
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Contacto:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["contact_name"]}', 0, 1)
         
         if client.get('email'):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(30, 6, 'EMAIL:', 0, 0)
-            pdf.set_font('Arial', '', 9)
-            pdf.cell(0, 6, f'{client["email"]}', 0, 1)
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Email:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["email"]}', 0, 1)
         
         if client.get('phone'):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(30, 6, 'TELÉFONO:', 0, 0)
-            pdf.set_font('Arial', '', 9)
-            pdf.cell(0, 6, f'{client["phone"]}', 0, 1)
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Teléfono:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["phone"]}', 0, 1)
         
         if client.get('address'):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(30, 6, 'DIRECCIÓN:', 0, 0)
-            pdf.set_font('Arial', '', 9)
-            pdf.cell(0, 6, f'{client["address"]}', 0, 1)
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Dirección:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["address"]}', 0, 1)
         
         if client.get('tax_id'):
-            pdf.set_font('Arial', 'B', 9)
-            pdf.cell(30, 6, 'RNC:', 0, 0)
-            pdf.set_font('Arial', '', 9)
-            pdf.cell(0, 6, f'{client["tax_id"]}', 0, 1)
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'RNC:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["tax_id"]}', 0, 1)
         
-        pdf.ln(5)
+        pdf.ln(8)
         
-        # ==================== SECTION: ITEMS TABLE ====================
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(0, 7, 'DETALLE DE ITEMS', 0, 1, 'L')
+        # ==================== SECTION: ITEMS TABLE (MODERN DESIGN) ====================
+        pdf.set_font('Arial', 'B', 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Detalle de Items', 0, 1, 'L')
         pdf.ln(2)
         
-        # Table headers
-        pdf.set_font('Arial', 'B', 9)
-        pdf.cell(85, 7, 'DESCRIPCIÓN', 1, 0, 'C')
-        pdf.cell(25, 7, 'CANTIDAD', 1, 0, 'C')
-        pdf.cell(35, 7, 'PRECIO UNIT.', 1, 0, 'C')
-        pdf.cell(45, 7, 'TOTAL', 1, 1, 'C')
+        # Table headers with subtle background
+        pdf.set_fill_color(245, 245, 245)
+        pdf.set_draw_color(220, 220, 220)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(85, 6, 'DESCRIPCIÓN', 1, 0, 'L', True)
+        pdf.cell(25, 6, 'CANTIDAD', 1, 0, 'C', True)
+        pdf.cell(35, 6, 'PRECIO UNIT.', 1, 0, 'R', True)
+        pdf.cell(45, 6, 'TOTAL', 1, 1, 'R', True)
         
-        # Table rows
-        pdf.set_font('Arial', '', 9)
+        # Table rows with alternating colors
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        row_color = True
+        
         for item in items:
             qty = float(item['quantity'] or 0)
             price = float(item['unit_price'] or 0)
             subtotal = qty * price
-            product_name = str(item['product_name'])[:40] if item.get('product_name') else 'Item'
+            product_name = str(item['product_name'])[:50] if item.get('product_name') else 'Item'
             
-            # Description (multi-line if needed)
-            pdf.cell(85, 6, product_name, 1, 0)
-            pdf.cell(25, 6, f'{qty:.2f}', 1, 0, 'R')
-            pdf.cell(35, 6, f'${price:.2f}', 1, 0, 'R')
-            pdf.cell(45, 6, f'${subtotal:.2f}', 1, 1, 'R')
+            if row_color:
+                pdf.set_fill_color(252, 252, 252)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+            
+            pdf.cell(85, 5, product_name, 1, 0, 'L', True)
+            pdf.cell(25, 5, f'{qty:.2f}', 1, 0, 'C', True)
+            pdf.cell(35, 5, f'${price:,.2f}', 1, 0, 'R', True)
+            pdf.cell(45, 5, f'${subtotal:,.2f}', 1, 1, 'R', True)
+            
+            row_color = not row_color
         
-        pdf.ln(5)
+        pdf.ln(6)
         
-        # ==================== SECTION: RESUMEN FINANCIERO ====================
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(0, 7, 'RESUMEN FINANCIERO', 0, 1, 'L')
+        # ==================== SECTION: FINANCIAL SUMMARY (CLEAN LAYOUT) ====================
+        pdf.set_font('Arial', 'B', 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Resumen Financiero', 0, 1, 'L')
         pdf.ln(2)
         
-        # Financial summary table
-        pdf.set_font('Arial', '', 9)
+        # Financial summary table with right alignment
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        summary_x = 120
         
         # Subtotal de Items
-        pdf.cell(120, 6, 'Subtotal de Items:', 0, 0)
-        pdf.cell(45, 6, f'${items_total:.2f}', 0, 1, 'R')
+        pdf.set_x(summary_x)
+        pdf.cell(45, 4, 'Subtotal de Items:', 0, 0, 'L')
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(25, 4, f'${items_total:,.2f}', 0, 1, 'R')
         
-        # Total Después de Descuentos (if discounts exist)
+        # Discounts if applicable
         if total_discounts > 0:
-            pdf.cell(120, 6, f'Total Descuentos:', 0, 0)
-            pdf.cell(45, 6, f'-${total_discounts:.2f}', 0, 1, 'R')
-            pdf.cell(120, 6, 'Total Después de Descuentos:', 0, 0)
-            pdf.cell(45, 6, f'${items_after_discount:.2f}', 0, 1, 'R')
+            pdf.set_x(summary_x)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(45, 4, 'Total Descuentos:', 0, 0, 'L')
+            pdf.set_text_color(200, 50, 50)
+            pdf.cell(25, 4, f'-${total_discounts:,.2f}', 0, 1, 'R')
+            
+            pdf.set_x(summary_x)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(45, 4, 'Después de Descuentos:', 0, 0, 'L')
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(25, 4, f'${items_after_discount:,.2f}', 0, 1, 'R')
             pdf.ln(1)
         
-        # Surcharge breakdown
+        # Surcharges with smaller, lighter text
+        pdf.set_font('Arial', '', 7)
         if charges.get('supervision'):
-            pdf.cell(120, 6, f'Supervisión ({supervision_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${supervision:.2f}', 0, 1, 'R')
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Supervisión ({supervision_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${supervision:,.2f}', 0, 1, 'R')
         if charges.get('admin'):
-            pdf.cell(120, 6, f'Administración ({admin_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${admin:.2f}', 0, 1, 'R')
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Administración ({admin_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${admin:,.2f}', 0, 1, 'R')
         if charges.get('insurance'):
-            pdf.cell(120, 6, f'Seguro ({insurance_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${insurance:.2f}', 0, 1, 'R')
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Seguro ({insurance_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${insurance:,.2f}', 0, 1, 'R')
         if charges.get('transport'):
-            pdf.cell(120, 6, f'Transporte ({transport_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${transport:.2f}', 0, 1, 'R')
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Transporte ({transport_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${transport:,.2f}', 0, 1, 'R')
         if charges.get('contingency'):
-            pdf.cell(120, 6, f'Contingencia ({contingency_pct:.1f}%):', 0, 0)
-            pdf.cell(45, 6, f'${contingency:.2f}', 0, 1, 'R')
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Contingencia ({contingency_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${contingency:,.2f}', 0, 1, 'R')
         
+        pdf.ln(2)
+        
+        # Subtotal line separator
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(summary_x, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(2)
         
         # SUBTOTAL GENERAL
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(120, 7, 'SUBTOTAL GENERAL:', 0, 0)
-        pdf.cell(45, 7, f'${subtotal_general:.2f}', 0, 1, 'R')
+        pdf.set_x(summary_x)
+        pdf.set_font('Arial', 'B', 8)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(45, 5, 'Subtotal General:', 0, 0, 'L')
+        pdf.cell(25, 5, f'${subtotal_general:,.2f}', 0, 1, 'R')
         
         # ITBIS (18%)
-        pdf.cell(120, 7, 'ITBIS (18%):', 0, 0)
-        pdf.cell(45, 7, f'${itbis:.2f}', 0, 1, 'R')
+        pdf.set_x(summary_x)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(45, 4, 'ITBIS (18%):', 0, 0, 'L')
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(25, 4, f'${itbis:,.2f}', 0, 1, 'R')
         
-        # TOTAL GENERAL (bold and larger)
-        pdf.set_font('Arial', 'B', 14)
-        pdf.cell(120, 10, 'TOTAL GENERAL:', 0, 0)
-        pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
+        pdf.ln(1)
         
-        pdf.ln(10)
-        
-        # ==================== SECTION: FIRMAS ====================
-        pdf.set_font('Arial', 'B', 11)
-        pdf.cell(0, 7, 'FIRMAS', 0, 1, 'L')
+        # Total line separator
+        pdf.set_draw_color(200, 200, 200)
+        pdf.line(summary_x, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(2)
         
-        pdf.set_font('Arial', '', 9)
-        pdf.cell(95, 6, '__________________________________', 0, 0, 'C')
-        pdf.cell(95, 6, '__________________________________', 0, 1, 'C')
+        # TOTAL GENERAL (emphasized)
+        pdf.set_x(summary_x)
+        pdf.set_font('Arial', 'B', 11)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(45, 7, 'TOTAL GENERAL:', 0, 0, 'L')
+        pdf.cell(25, 7, f'${grand_total:,.2f}', 0, 1, 'R')
         
-        pdf.cell(95, 6, 'Autorizado Por:', 0, 0, 'C')
-        pdf.cell(95, 6, 'Firma Cliente', 0, 1, 'C')
+        pdf.ln(12)
         
-        pdf.ln(15)
+        # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(100, 100, 100)
         
-        # ==================== FOOTER: METPRO CONTACT INFO ====================
-        pdf.set_font('Arial', 'I', 7)
-        pdf.cell(0, 5, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 5, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, República Dominicana', 0, 1, 'C')
-        pdf.cell(0, 5, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
-        pdf.cell(0, 5, f'Página 1 de 1 | Cotización: {quote["quote_id"]} | Fecha: {quote["date"]}', 0, 1, 'C')
+        sig_y = pdf.get_y()
+        pdf.set_xy(20, sig_y + 15)
+        pdf.set_draw_color(180, 180, 180)
+        pdf.line(20, sig_y + 15, 80, sig_y + 15)
+        pdf.set_xy(20, sig_y + 16)
+        pdf.cell(60, 4, 'Autorizado Por', 0, 0, 'C')
+        
+        pdf.set_xy(130, sig_y + 15)
+        pdf.line(130, sig_y + 15, 190, sig_y + 15)
+        pdf.set_xy(130, sig_y + 16)
+        pdf.cell(60, 4, 'Firma Cliente', 0, 0, 'C')
+        
+        # ==================== FOOTER: COMPACT INFO ====================
+        pdf.set_y(-20)
+        pdf.set_font('Arial', '', 6)
+        pdf.set_text_color(140, 140, 140)
+        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.set_font('Arial', 'I', 6)
+        pdf.cell(0, 3, f'Cotización {quote["quote_id"]} | {quote["date"]} | Página 1 de 1', 0, 1, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
