@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file
-from fastapi import FastAPI, Depends, HTTPException, status, Header
+from fastapi import FastAPI, Depends, HTTPException, status, Header, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -256,87 +256,50 @@ def get_clients(current_user: dict = Depends(verify_token)):
         if conn:
             conn.close()
 
+# Example fix for get_client
 @app.get('/clients/{client_id}', response_model=Client)
 def get_client(client_id: int, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
-        cursor.execute('SELECT * FROM clients WHERE id = ?', (client_id,))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))  # ← %s NOT ?
         row = cursor.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail='Client not found')
-        return Client(
-            id=row[0],
-            company_name=row[1],
-            contact_name=row[2],
-            email=row[3],
-            phone=row[4],
-            address=row[5],
-            tax_id=row[6],
-            notes=row[7]
-        )
+        return Client(**row)  # Simplified using dict_row
     finally:
-        conn.close()
+        if conn: conn.close()
 
-@app.put('/clients/{client_id}', response_model=Client)
-def update_client(client_id: int, client: ClientBase, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+# Example fix for get_client
+@app.get('/clients/{client_id}', response_model=Client)
+def get_client(client_id: int, current_user: dict = Depends(verify_token)):
+    conn = None
     try:
-        cursor.execute('''
-            UPDATE clients
-            SET company_name = ?, contact_name = ?, email = ?, phone = ?, address = ?, tax_id = ?, notes = ?
-            WHERE id = ?
-        ''', (
-            client.company_name,
-            client.contact_name,
-            client.email,
-            client.phone,
-            client.address,
-            client.tax_id,
-            client.notes,
-            client_id
-        ))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail='Client not found')
-        conn.commit()
-        cursor.execute('SELECT * FROM clients WHERE id = ?', (client_id,))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))  # ← %s NOT ?
         row = cursor.fetchone()
-        return Client(
-            id=row[0],
-            company_name=row[1],
-            contact_name=row[2],
-            email=row[3],
-            phone=row[4],
-            address=row[5],
-            tax_id=row[6],
-            notes=row[7]
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
-@app.delete('/clients/{client_id}')
-def delete_client(client_id: int, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('DELETE FROM clients WHERE id = ?', (client_id,))
-        if cursor.rowcount == 0:
+        if row is None:
             raise HTTPException(status_code=404, detail='Client not found')
-        conn.commit()
-        return {'message': 'Client deleted successfully'}
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        return Client(**row)  # Simplified using dict_row
     finally:
-        conn.close()
+        if conn: conn.close()
+
+# Example fix for get_client
+@app.get('/clients/{client_id}', response_model=Client)
+def get_client(client_id: int, current_user: dict = Depends(verify_token)):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))  # ← %s NOT ?
+        row = cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail='Client not found')
+        return Client(**row)  # Simplified using dict_row
+    finally:
+        if conn: conn.close()
 
 # Quote calculation helper (supports dynamic percentages)
 def calculate_quote_totals(items: List[dict], charges: dict):
@@ -1046,130 +1009,169 @@ def login(login_data: LoginRequest):
         if conn:
             conn.close()
 
-# Product Endpoints (same as before - no changes needed)
+    # Product Endpoints - POSTGRESQL SYNTAX (NOT SQLite)
 @app.post('/products/', response_model=Product)
 def create_product(product: ProductBase, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO products (name, description, unit_price)
-            VALUES (?, ?, ?)
+            VALUES (%s, %s, %s)
+            RETURNING id
         ''', (product.name, product.description, product.unit_price))
-        product_id = cursor.lastrowid
+        product_id = cursor.fetchone()['id']
         conn.commit()
-        return Product(id=product_id, **product.model_dump())
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail='Product name already exists')
+        return Product(
+            id=product_id,
+            name=product.name,
+            description=product.description,
+            unit_price=product.unit_price
+        )
+    except psycopg2.IntegrityError as e:
+        if conn: conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise HTTPException(status_code=400, detail='Product name already exists')
+        raise HTTPException(status_code=400, detail='Database integrity error')
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Failed to create product: {str(e)}')
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.get('/products/', response_model=List[Product])
 def get_products(current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
-        cursor.execute('SELECT * FROM products ORDER BY name')
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, description, unit_price FROM products ORDER BY name')
         rows = cursor.fetchall()
         return [
-            Product(id=row[0], name=row[1], description=row[2], unit_price=row[3])
+            Product(
+                id=row['id'],
+                name=row['name'],
+                description=row['description'],
+                unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+            )
             for row in rows
         ]
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.get('/products/{product_id}', response_model=Product)
 def get_product(product_id: int, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
-        row = cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, description, unit_price FROM products WHERE id = %s', (product_id,))
+        row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail='Product not found')
-        return Product(id=row[0], name=row[1], description=row[2], unit_price=row[3])
+        return Product(
+            id=row['id'],
+            name=row['name'],
+            description=row['description'],
+            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+        )
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.put('/products/{product_id}', response_model=Product)
 def update_product(product_id: int, product: ProductBase, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute('''
-            UPDATE products SET name = ?, description = ?, unit_price = ? WHERE id = ?
+            UPDATE products 
+            SET name = %s, description = %s, unit_price = %s 
+            WHERE id = %s
+            RETURNING id, name, description, unit_price
         ''', (product.name, product.description, product.unit_price, product_id))
-        if cursor.rowcount == 0:
+        row = cursor.fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail='Product not found')
         conn.commit()
-        row = cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
-        return Product(id=row[0], name=row[1], description=row[2], unit_price=row[3])
-    except HTTPException:
-        raise
+        return Product(
+            id=row['id'],
+            name=row['name'],
+            description=row['description'],
+            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+        )
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Failed to update product: {str(e)}')
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.delete('/products/{product_id}')
 def delete_product(product_id: int, current_user: dict = Depends(verify_token)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = None
     try:
-        cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM products WHERE id = %s', (product_id,))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail='Product not found')
         conn.commit()
         return {'message': 'Product deleted successfully'}
-    except HTTPException:
-        raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Failed to delete product: {str(e)}')
     finally:
-        conn.close()
+        if conn: conn.close()
 
 @app.post('/products/import-csv')
 async def import_products_csv(file: UploadFile = File(...), current_user: dict = Depends(verify_token)):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail='File must be CSV')
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    
+    conn = None
     try:
         content = await file.read()
         csv_text = content.decode('utf-8')
         csv_reader = csv.DictReader(io.StringIO(csv_text))
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         imported = 0
         skipped = 0
+        
         for row in csv_reader:
             try:
                 name = row.get('name', '').strip()
                 if not name:
                     skipped += 1
                     continue
+                
                 description = row.get('description', '').strip()
                 unit_price = float(row.get('unit_price', 0))
+                
                 cursor.execute('''
                     INSERT INTO products (name, description, unit_price)
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                 ''', (name, description, unit_price))
+                
                 imported += 1
-            except:
+            except Exception as e:
                 skipped += 1
+        
         conn.commit()
+        
         return {
             'imported': imported,
             'skipped': skipped,
             'message': f'Successfully imported {imported} products, skipped {skipped}'
         }
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'CSV import failed: {str(e)}')
     finally:
-        conn.close()
+        if conn: conn.close()
         
      # redeploy after removing env
      # redeploy trigger 
