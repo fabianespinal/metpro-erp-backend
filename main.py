@@ -80,38 +80,35 @@ app.add_middleware(
 def health():
     return {"status": "ok"}
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify JWT token and return user info"""
-    if not credentials or not credentials.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authentication token"
-        )
-
-    token = credentials.credentials
-
+def verify_token(
+    authorization: str = Header(None),
+    token: str = None  # Accept token from query string too (for iframe)
+):
+    """Verify JWT token from Authorization header or query string"""
+    # Try header first
+    if authorization:
+        try:
+            scheme, token = authorization.split()
+            if scheme.lower() != 'bearer':
+                raise HTTPException(status_code=401, detail='Invalid authorization scheme')
+        except ValueError:
+            raise HTTPException(status_code=401, detail='Invalid authorization header format')
+    # If no header, try query string
+    elif token:
+        pass  # token already provided
+    else:
+        raise HTTPException(status_code=401, detail='Missing authorization')
+    
+    if not token:
+        raise HTTPException(status_code=401, detail='Missing token')
+    
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        user_id: int = payload.get("user_id")
-        role: str = payload.get("role")
-
-        if username is None or user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication token"
-            )
-
-        return {
-            "username": username,
-            "user_id": user_id,
-            "role": role
-        }
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
-        )
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail='Token expired')
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail='Invalid token')
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -816,8 +813,8 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         # Parse charges
         try:
             charges = json.loads(quote['included_charges'])
-            print(f"\n=== DEBUG PDF for {quote_id} ===")
-            print(f"Charges raw: {quote['included_charges']}")
+           # print(f"\n=== DEBUG PDF for {quote_id} ===")
+           # print(f"Charges raw: {quote['included_charges']}")
             print(f"Charges parsed: {charges}")
             print(f"supervision exists: {'supervision' in charges}")
             print(f"supervision value: {charges.get('supervision')}")
