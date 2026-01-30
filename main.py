@@ -720,28 +720,31 @@ def download_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)
 
 @app.get('/quotes/{quote_id}/pdf')
 def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
-    """Generate PDF with surcharge breakdown (supports old and new quotes)"""
+    """Generate professional METPRO PDF with exact branding and layout"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        
         # Get quote
         cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
         quote = cursor.fetchone()
         if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
+        
         # Get client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (quote['client_id'],))
         client = cursor.fetchone()
         if not client:
             raise HTTPException(status_code=404, detail='Client not found')
+        
         # Get items
         cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (quote_id,))
         items = cursor.fetchall()
+        
         # Parse charges with backwards-compatible defaults
         try:
             charges = json.loads(quote['included_charges'])
-            # Add missing percentage fields for old quotes
             defaults = {
                 'supervision_percentage': 10.0,
                 'admin_percentage': 4.0,
@@ -753,7 +756,6 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
                 if key not in charges:
                     charges[key] = default
         except:
-            # Fallback for completely broken data
             charges = {
                 'supervision': True, 'supervision_percentage': 10.0,
                 'admin': True, 'admin_percentage': 4.0,
@@ -762,10 +764,9 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
                 'contingency': True, 'contingency_percentage': 3.0
             }
         
-        # Calculate surcharges
+        # Calculate totals
         items_total = sum(float(item['quantity'] or 0) * float(item['unit_price'] or 0) for item in items)
         
-        # Calculate discounts
         total_discounts = 0
         for item in items:
             subtotal = float(item['quantity'] or 0) * float(item['unit_price'] or 0)
@@ -776,7 +777,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         items_after_discount = items_total - total_discounts
         
-        # Get percentages safely (works for old AND new quotes)
+        # Get percentages safely
         supervision_pct = float(charges.get('supervision_percentage', 10.0))
         admin_pct = float(charges.get('admin_percentage', 4.0))
         insurance_pct = float(charges.get('insurance_percentage', 1.0))
@@ -789,138 +790,199 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         transport = items_after_discount * (transport_pct / 100) if charges.get('transport') else 0
         contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency') else 0
         
-        # Calculate base amounts
-        items_total = sum(float(item['quantity'] or 0) * float(item['unit_price'] or 0) for item in items)
-        
-        # Calculate discounts
-        total_discounts = 0
-        for item in items:
-            subtotal = float(item['quantity'] or 0) * float(item['unit_price'] or 0)
-            if item.get('discount_type') == 'percentage':
-                total_discounts += subtotal * (float(item.get('discount_value', 0)) / 100)
-            elif item.get('discount_type') == 'fixed':
-                total_discounts += float(item.get('discount_value', 0))
-        
-        items_after_discount = items_total - total_discounts
-        
-        # Get percentages with SAFER defaults (works for old quotes without percentage fields)
-        supervision_pct = float(charges.get('supervision_percentage', 10.0)) if charges.get('supervision') else 0
-        admin_pct = float(charges.get('admin_percentage', 4.0)) if charges.get('admin') else 0
-        insurance_pct = float(charges.get('insurance_percentage', 1.0)) if charges.get('insurance') else 0
-        transport_pct = float(charges.get('transport_percentage', 3.0)) if charges.get('transport') else 0
-        contingency_pct = float(charges.get('contingency_percentage', 3.0)) if charges.get('contingency') else 0
-        
-        # Calculate surcharges
-        supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision') else 0
-        admin = items_after_discount * (admin_pct / 100) if charges.get('admin') else 0
-        insurance = items_after_discount * (insurance_pct / 100) if charges.get('insurance') else 0
-        transport = items_after_discount * (transport_pct / 100) if charges.get('transport') else 0
-        contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency') else 0
-        
         subtotal_general = items_after_discount + supervision + admin + insurance + transport + contingency
         itbis = subtotal_general * 0.18
         grand_total = subtotal_general + itbis
         
-        # Create PDF
+        # Create PDF with exact METPRO branding
         pdf = FPDF()
         pdf.add_page()
+        
+        # ==================== HEADER: METPRO BRANDING ====================
         pdf.set_font('Arial', 'B', 16)
-        pdf.cell(0, 10, 'COTIZACION / QUOTE', 0, 1, 'C')
-        pdf.ln(5)
-        pdf.set_font('Arial', 'B', 12)
-        pdf.cell(0, 10, f'ID: {quote["quote_id"]}', 0, 1)
-        pdf.ln(5)
-        
-        # Client info
+        pdf.cell(0, 8, 'METPRO', 0, 1, 'C')
         pdf.set_font('Arial', 'B', 10)
-        pdf.cell(0, 8, 'CLIENTE / CLIENT', 0, 1)
-        pdf.set_font('Arial', '', 10)
-        pdf.cell(0, 6, f'Empresa: {client["company_name"]}', 0, 1)
-        if client.get('contact_name'): pdf.cell(0, 6, f'Contacto: {client["contact_name"]}', 0, 1)
-        if client.get('email'): pdf.cell(0, 6, f'Email: {client["email"]}', 0, 1)
-        if client.get('phone'): pdf.cell(0, 6, f'Telefono: {client["phone"]}', 0, 1)
-        if client.get('address'): pdf.cell(0, 6, f'Direccion: {client["address"]}', 0, 1)
-        if client.get('tax_id'): pdf.cell(0, 6, f'RNC: {client["tax_id"]}', 0, 1)
+        pdf.cell(0, 6, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.set_font('Arial', '', 8)
+        pdf.cell(0, 5, 'Calle Principal #123, Ensanche La Fe', 0, 1, 'C')
+        pdf.cell(0, 5, 'Santo Domingo, República Dominicana', 0, 1, 'C')
+        pdf.cell(0, 5, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
         pdf.ln(5)
         
-        # Project & date
-        if quote.get('project_name'):
-            pdf.set_font('Arial', 'B', 10)
-            pdf.cell(0, 8, 'PROYECTO / PROJECT', 0, 1)
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 6, f'Nombre: {quote["project_name"]}', 0, 1)
-            pdf.ln(3)
+        # ==================== TITLE: COTIZACIÓN ====================
+        pdf.set_font('Arial', 'B', 18)
+        pdf.cell(0, 10, 'COTIZACIÓN', 0, 1, 'C')
+        pdf.ln(3)
         
-        pdf.set_font('Arial', '', 10)
-        pdf.cell(0, 6, f'Fecha / Date: {quote["date"]}', 0, 1)
-        pdf.ln(8)
-        
-        # Items table
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(0, 8, 'ITEMS / PRODUCTOS', 0, 1)
+        # ==================== SECTION: DATOS PEDIDO ====================
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 7, 'DATOS PEDIDO', 0, 1, 'L')
         pdf.ln(2)
-        pdf.set_font('Arial', 'B', 9)
-        pdf.cell(20, 8, 'Qty', 1, 0, 'C')
-        pdf.cell(85, 8, 'Descripcion', 1, 0)
-        pdf.cell(25, 8, 'Precio', 1, 0, 'R')
-        pdf.cell(25, 8, 'Total', 1, 1, 'R')
         
+        # Quote number and date table
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(40, 6, 'NÚMERO DE COTIZACIÓN:', 0, 0)
+        pdf.set_font('Arial', '', 9)
+        pdf.cell(60, 6, f'{quote["quote_id"]}', 0, 0)
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(40, 6, 'FECHA:', 0, 0)
+        pdf.set_font('Arial', '', 9)
+        pdf.cell(50, 6, f'{quote["date"]}', 0, 1)
+        pdf.ln(2)
+        
+        # Project name
+        if quote.get('project_name'):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(40, 6, 'PROYECTO:', 0, 0)
+            pdf.set_font('Arial', '', 9)
+            pdf.cell(0, 6, f'{quote["project_name"]}', 0, 1)
+            pdf.ln(2)
+        
+        # ==================== SECTION: CLIENTE ====================
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 7, 'CLIENTE', 0, 1, 'L')
+        pdf.ln(2)
+        
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(30, 6, 'EMPRESA:', 0, 0)
+        pdf.set_font('Arial', '', 9)
+        pdf.cell(0, 6, f'{client["company_name"]}', 0, 1)
+        
+        if client.get('contact_name'):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(30, 6, 'CONTACTO:', 0, 0)
+            pdf.set_font('Arial', '', 9)
+            pdf.cell(0, 6, f'{client["contact_name"]}', 0, 1)
+        
+        if client.get('email'):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(30, 6, 'EMAIL:', 0, 0)
+            pdf.set_font('Arial', '', 9)
+            pdf.cell(0, 6, f'{client["email"]}', 0, 1)
+        
+        if client.get('phone'):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(30, 6, 'TELÉFONO:', 0, 0)
+            pdf.set_font('Arial', '', 9)
+            pdf.cell(0, 6, f'{client["phone"]}', 0, 1)
+        
+        if client.get('address'):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(30, 6, 'DIRECCIÓN:', 0, 0)
+            pdf.set_font('Arial', '', 9)
+            pdf.cell(0, 6, f'{client["address"]}', 0, 1)
+        
+        if client.get('tax_id'):
+            pdf.set_font('Arial', 'B', 9)
+            pdf.cell(30, 6, 'RNC:', 0, 0)
+            pdf.set_font('Arial', '', 9)
+            pdf.cell(0, 6, f'{client["tax_id"]}', 0, 1)
+        
+        pdf.ln(5)
+        
+        # ==================== SECTION: ITEMS TABLE ====================
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 7, 'DETALLE DE ITEMS', 0, 1, 'L')
+        pdf.ln(2)
+        
+        # Table headers
+        pdf.set_font('Arial', 'B', 9)
+        pdf.cell(85, 7, 'DESCRIPCIÓN', 1, 0, 'C')
+        pdf.cell(25, 7, 'CANTIDAD', 1, 0, 'C')
+        pdf.cell(35, 7, 'PRECIO UNIT.', 1, 0, 'C')
+        pdf.cell(45, 7, 'TOTAL', 1, 1, 'C')
+        
+        # Table rows
         pdf.set_font('Arial', '', 9)
         for item in items:
             qty = float(item['quantity'] or 0)
             price = float(item['unit_price'] or 0)
             subtotal = qty * price
             product_name = str(item['product_name'])[:40] if item.get('product_name') else 'Item'
-            pdf.cell(20, 6, str(qty), 1, 0, 'C')
+            
+            # Description (multi-line if needed)
             pdf.cell(85, 6, product_name, 1, 0)
-            pdf.cell(25, 6, f'${price:.2f}', 1, 0, 'R')
-            pdf.cell(25, 6, f'${subtotal:.2f}', 1, 1, 'R')
+            pdf.cell(25, 6, f'{qty:.2f}', 1, 0, 'R')
+            pdf.cell(35, 6, f'${price:.2f}', 1, 0, 'R')
+            pdf.cell(45, 6, f'${subtotal:.2f}', 1, 1, 'R')
         
-        pdf.ln(8)
+        pdf.ln(5)
         
-        # Show surcharge breakdown BEFORE subtotal
-        pdf.set_font('Arial', 'B', 10)
-        pdf.cell(120, 6, 'SUBTOTAL ITEMS:', 0, 0)
-        pdf.cell(45, 6, f'${items_after_discount:.2f}', 0, 1, 'R')
+        # ==================== SECTION: RESUMEN FINANCIERO ====================
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 7, 'RESUMEN FINANCIERO', 0, 1, 'L')
         pdf.ln(2)
         
-        # Display ONLY enabled surcharges
+        # Financial summary table
+        pdf.set_font('Arial', '', 9)
+        
+        # Subtotal de Items
+        pdf.cell(120, 6, 'Subtotal de Items:', 0, 0)
+        pdf.cell(45, 6, f'${items_total:.2f}', 0, 1, 'R')
+        
+        # Total Después de Descuentos (if discounts exist)
+        if total_discounts > 0:
+            pdf.cell(120, 6, f'Total Descuentos:', 0, 0)
+            pdf.cell(45, 6, f'-${total_discounts:.2f}', 0, 1, 'R')
+            pdf.cell(120, 6, 'Total Después de Descuentos:', 0, 0)
+            pdf.cell(45, 6, f'${items_after_discount:.2f}', 0, 1, 'R')
+            pdf.ln(1)
+        
+        # Surcharge breakdown
         if charges.get('supervision'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Supervision ({supervision_pct:.1f}%):', 0, 0)
+            pdf.cell(120, 6, f'Supervisión ({supervision_pct:.1f}%):', 0, 0)
             pdf.cell(45, 6, f'${supervision:.2f}', 0, 1, 'R')
         if charges.get('admin'):
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(120, 6, f'Administracion ({admin_pct:.1f}%):', 0, 0)
+            pdf.cell(120, 6, f'Administración ({admin_pct:.1f}%):', 0, 0)
             pdf.cell(45, 6, f'${admin:.2f}', 0, 1, 'R')
         if charges.get('insurance'):
-            pdf.set_font('Arial', '', 10)
             pdf.cell(120, 6, f'Seguro ({insurance_pct:.1f}%):', 0, 0)
             pdf.cell(45, 6, f'${insurance:.2f}', 0, 1, 'R')
         if charges.get('transport'):
-            pdf.set_font('Arial', '', 10)
             pdf.cell(120, 6, f'Transporte ({transport_pct:.1f}%):', 0, 0)
             pdf.cell(45, 6, f'${transport:.2f}', 0, 1, 'R')
         if charges.get('contingency'):
-            pdf.set_font('Arial', '', 10)
             pdf.cell(120, 6, f'Contingencia ({contingency_pct:.1f}%):', 0, 0)
             pdf.cell(45, 6, f'${contingency:.2f}', 0, 1, 'R')
         
         pdf.ln(2)
+        
+        # SUBTOTAL GENERAL
         pdf.set_font('Arial', 'B', 10)
-        pdf.cell(120, 6, 'SUBTOTAL:', 0, 0)
-        pdf.cell(45, 6, f'${subtotal_general:.2f}', 0, 1, 'R')
-        pdf.cell(120, 6, 'ITBIS (18%):', 0, 0)
-        pdf.cell(45, 6, f'${itbis:.2f}', 0, 1, 'R')
-        pdf.ln(2)
+        pdf.cell(120, 7, 'SUBTOTAL GENERAL:', 0, 0)
+        pdf.cell(45, 7, f'${subtotal_general:.2f}', 0, 1, 'R')
+        
+        # ITBIS (18%)
+        pdf.cell(120, 7, 'ITBIS (18%):', 0, 0)
+        pdf.cell(45, 7, f'${itbis:.2f}', 0, 1, 'R')
+        
+        # TOTAL GENERAL (bold and larger)
         pdf.set_font('Arial', 'B', 14)
-        pdf.cell(120, 10, 'TOTAL:', 0, 0)
+        pdf.cell(120, 10, 'TOTAL GENERAL:', 0, 0)
         pdf.cell(45, 10, f'${grand_total:.2f}', 0, 1, 'R')
         
+        pdf.ln(10)
+        
+        # ==================== SECTION: FIRMAS ====================
+        pdf.set_font('Arial', 'B', 11)
+        pdf.cell(0, 7, 'FIRMAS', 0, 1, 'L')
+        pdf.ln(2)
+        
+        pdf.set_font('Arial', '', 9)
+        pdf.cell(95, 6, '__________________________________', 0, 0, 'C')
+        pdf.cell(95, 6, '__________________________________', 0, 1, 'C')
+        
+        pdf.cell(95, 6, 'Autorizado Por:', 0, 0, 'C')
+        pdf.cell(95, 6, 'Firma Cliente', 0, 1, 'C')
+        
         pdf.ln(15)
-        pdf.set_font('Arial', 'I', 8)
-        pdf.cell(0, 6, 'METPRO ERP - Sistema de Gestion Empresarial', 0, 1, 'C')
-        pdf.cell(0, 6, f'Generado: {datetime.now().strftime("%Y-%m-%d %H:%M")}', 0, 1, 'C')
+        
+        # ==================== FOOTER: METPRO CONTACT INFO ====================
+        pdf.set_font('Arial', 'I', 7)
+        pdf.cell(0, 5, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 5, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, República Dominicana', 0, 1, 'C')
+        pdf.cell(0, 5, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.cell(0, 5, f'Página 1 de 1 | Cotización: {quote["quote_id"]} | Fecha: {quote["date"]}', 0, 1, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
@@ -928,6 +990,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             media_type='application/pdf',
             headers={'Content-Disposition': f'attachment; filename={quote_id}_cotizacion.pdf'}
         )
+    
     except Exception as e:
         print(f"PDF GENERATION ERROR for quote {quote_id}: {str(e)}")
         import traceback
