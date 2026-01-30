@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file
 
-from fastapi import FastAPI, HTTPException, File, UploadFile, Depends, status
+from fastapi import FastAPI, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -82,10 +82,9 @@ def health():
 
 def verify_token(
     authorization: str = Header(None),
-    token: str = None  # Accept token from query string too (for iframe)
+    token: str = None  # Accept token from query string for iframe
 ):
     """Verify JWT token from Authorization header or query string"""
-    # Try header first
     if authorization:
         try:
             scheme, token = authorization.split()
@@ -93,14 +92,13 @@ def verify_token(
                 raise HTTPException(status_code=401, detail='Invalid authorization scheme')
         except ValueError:
             raise HTTPException(status_code=401, detail='Invalid authorization header format')
-    # If no header, try query string
     elif token:
-        pass  # token already provided
+        pass  # token provided via query string
     else:
-        raise HTTPException(status_code=401, detail='Missing authorization')
+        raise HTTPException(status_code=401, detail='Missing authorization token')
     
     if not token:
-        raise HTTPException(status_code=401, detail='Missing token')
+        raise HTTPException(status_code=401, detail='Token is empty')
     
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
