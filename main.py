@@ -174,8 +174,8 @@ class QuoteBase(BaseModel):
     client_id: int
     project_name: Optional[str] = None
     notes: Optional[str] = None
-    items: List[QuoteItemCreate]
-    included_charges: IncludedCharges = IncludedCharges()  # ← FIXED
+    items: List[QuoteItemBase]  # ← FIXED
+    included_charges: IncludedCharges = IncludedCharges()
 
 class QuoteCreate(QuoteBase):
     items: List[QuoteItemBase]
@@ -1193,4 +1193,5 @@ async def import_products_csv(file: UploadFile = File(...), current_user: dict =
         
      # redeploy after removing env
      # redeploy trigger 
+     # ← FIXED
      
