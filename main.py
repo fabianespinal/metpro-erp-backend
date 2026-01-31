@@ -1932,8 +1932,9 @@ def update_client(
             'address': updated_client['address'],
             'tax_id': updated_client['tax_id'],
             'notes': updated_client['notes'],
-            'created_at': updated_client['created_at'].isoformat() if updated_client['created_at'] else None
+            'updated_at': updated_client['updated_at'].isoformat() if updated_client['updated_at'] else None
         }
+        
         
     except HTTPException:
         if conn:
