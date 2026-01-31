@@ -37,7 +37,6 @@ import re
 # Import your authentication utilities (NOT routers)
 from auth import verify_token
 
-clients_router = APIRouter()
 
 def sanitize_text(text):
     """Remove emojis and non-ASCII characters that FPDF can't handle"""
@@ -109,8 +108,6 @@ app.add_middleware(
     expose_headers=['*']
 )
 
-# Authentication Routes
-app.include_router(auth_router)
 
 # Simple health check endpoint
 @app.get("/health")
@@ -300,7 +297,7 @@ def get_client(client_id: int, current_user: dict = Depends(verify_token)):
 
 
 # ⭐ CSV Import Endpoint — FINAL FIX ⭐
-@app.post('/clients/import-csv')
+@app.post('/clients/bulk-import')
 async def import_clients_csv(
     file: UploadFile = File(...),
     skip_duplicates: bool = True,
@@ -2009,7 +2006,5 @@ def update_client(
         if conn:
             conn.close()
 
-
-     # redeploy after removing env variables
      # ← FIXED all at once 
      
