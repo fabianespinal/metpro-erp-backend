@@ -545,6 +545,75 @@ def delete_quote(quote_id: str, current_user: dict = Depends(verify_token)):
         if conn:
             conn.close()
 
+@app.put('/quotes/{quote_id}')
+def update_quote(quote_id: str, quote_data: QuoteCreate, current_user: dict = Depends(verify_token)):
+    """Update quote details (only for Draft status)"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verify quote exists and is Draft
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        quote = cursor.fetchone()
+        if not quote:
+            raise HTTPException(status_code=404, detail='Quote not found')
+        if quote['status'] != 'Draft':
+            raise HTTPException(
+                status_code=400, 
+                detail=f'Only Draft quotes can be edited. Current status: {quote["status"]}'
+            )
+        
+        # Calculate new totals
+        totals = calculate_quote_totals(
+            [item.model_dump() for item in quote_data.items],
+            quote_data.included_charges.model_dump()
+        )
+        
+        # Update quote (KEEP EXISTING client_id - don't allow changing client)
+        cursor.execute('''
+            UPDATE quotes 
+            SET project_name = %s, notes = %s, total_amount = %s, included_charges = %s
+            WHERE quote_id = %s
+        ''', (
+            quote_data.project_name,
+            quote_data.notes,
+            totals['grand_total'],
+            json.dumps(quote_data.included_charges.model_dump()),
+            quote_id
+        ))
+        
+        # Delete old items
+        cursor.execute('DELETE FROM quote_items WHERE quote_id = %s', (quote_id,))
+        
+        # Insert new items
+        for item in quote_data.items:
+            cursor.execute('''
+                INSERT INTO quote_items (quote_id, product_name, quantity, unit_price, discount_type, discount_value)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            ''', (
+                quote_id,
+                item.product_name,
+                item.quantity,
+                item.unit_price,
+                item.discount_type,
+                item.discount_value
+            ))
+        
+        conn.commit()
+        return {
+            'quote_id': quote_id,
+            'message': 'Quote updated successfully',
+            'totals': totals
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Update failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
 @app.post('/quotes/{quote_id}/duplicate')
 def duplicate_quote(quote_id: str, current_user: dict = Depends(verify_token)):
     conn = None
