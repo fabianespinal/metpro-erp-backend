@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -36,7 +36,8 @@ def login(payload: LoginRequest):
     if not user:
         raise HTTPException(status_code=400, detail="User not found")
 
-    if not pwd_context.verify(payload.password, user["password"]):
+    # IMPORTANT: Supabase column is hashed_password
+    if not pwd_context.verify(payload.password, user["hashed_password"]):
         raise HTTPException(status_code=400, detail="Incorrect password")
 
     token = create_access_token({"sub": payload.username})
