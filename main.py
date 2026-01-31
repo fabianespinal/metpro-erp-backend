@@ -672,54 +672,30 @@ def duplicate_quote(quote_id: str, current_user: dict = Depends(verify_token)):
 
 @app.post('/quotes/{quote_id}/convert-to-invoice')
 def convert_to_invoice(quote_id: str, current_user: dict = Depends(verify_token)):
-    """Convert Approved quote to Invoice (changes COT- to INV- prefix)"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ✅ CRITICAL FIX: Check for 'Approved' status (was incorrectly checking 'Draft')
         cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
         quote = cursor.fetchone()
         if not quote:
             raise HTTPException(status_code=404, detail='Quote not found')
-        if quote['status'] != 'Approved':
-            raise HTTPException(
-                status_code=400, 
-                detail=f'Only Approved quotes can be converted to invoices. Current status: {quote["status"]}'
-            )
+        if quote['status'] != 'Approved':  # ✅ FIXED: Was checking 'Draft' before
+            raise HTTPException(status_code=400, detail=f'Only Approved quotes can be converted (current: {quote["status"]})')
         
-        # Generate invoice ID (COT-2026-001 → INV-2026-001)
-        if not quote_id.startswith('COT-'):
-            raise HTTPException(status_code=400, detail='Invalid quote ID format')
-        invoice_id = quote_id.replace('COT-', 'INV-', 1)
+        invoice_id = quote_id.replace('COT-', 'INV-', 1)  # ✅ COT → INV conversion
         
-        # Check if invoice already exists
-        cursor.execute('SELECT 1 FROM quotes WHERE quote_id = %s', (invoice_id,))
-        if cursor.fetchone():
-            raise HTTPException(status_code=400, detail=f'Invoice {invoice_id} already exists')
-        
-        # ✅ TRANSACTION: Update status → Update quote_id → Update items
-        cursor.execute('UPDATE quotes SET status = %s WHERE quote_id = %s', ('Invoiced', quote_id))
-        cursor.execute('UPDATE quotes SET quote_id = %s WHERE quote_id = %s', (invoice_id, quote_id))
-        cursor.execute('UPDATE quote_items SET quote_id = %s WHERE quote_id = %s', (invoice_id, quote_id))
-        
+        cursor.execute('UPDATE quotes SET status = %s, quote_id = %s WHERE quote_id = %s', 
+                      ('Invoiced', invoice_id, quote_id))
+        cursor.execute('UPDATE quote_items SET quote_id = %s WHERE quote_id = %s', 
+                      (invoice_id, quote_id))
         conn.commit()
         
-        # ✅ RETURN NEW INVOICE ID (frontend needs this for UI update)
-        return {
-            'invoice_id': invoice_id,
-            'old_quote_id': quote_id,
-            'message': 'Quote successfully converted to invoice',
-            'status': 'Invoiced'
-        }
-    except HTTPException:
-        if conn: conn.rollback()
-        raise
+        return {'invoice_id': invoice_id, 'message': 'Converted to invoice'}
     except Exception as e:
         if conn: conn.rollback()
-        print(f"Conversion error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f'Conversion failed: {str(e)}')
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn: conn.close()
 
