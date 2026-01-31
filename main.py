@@ -1355,6 +1355,401 @@ async def import_products_csv(file: UploadFile = File(...), current_user: dict =
         raise HTTPException(status_code=500, detail=f'CSV import failed: {str(e)}')
     finally:
         if conn: conn.close()
+
+@app.get('/invoices/{invoice_id}/pdf')
+def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token)):
+    """Generate professional METPRO Invoice PDF with exact branding and layout"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get invoice (from quotes table - invoices are quotes with INV- prefix and Invoiced status)
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s AND status = %s', (invoice_id, 'Invoiced'))
+        invoice = cursor.fetchone()
+        if not invoice:
+            raise HTTPException(status_code=404, detail='Invoice not found')
+        
+        # Get client
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
+        client = cursor.fetchone()
+        if not client:
+            raise HTTPException(status_code=404, detail='Client not found')
+        
+        # Get items (from quote_items table)
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (invoice_id,))
+        items = cursor.fetchall()
+        
+        # Parse charges with backwards-compatible defaults
+        try:
+            charges = json.loads(invoice['included_charges'])
+            defaults = {
+                'supervision_percentage': 10.0,
+                'admin_percentage': 4.0,
+                'insurance_percentage': 1.0,
+                'transport_percentage': 3.0,
+                'contingency_percentage': 3.0
+            }
+            for key, default in defaults.items():
+                if key not in charges:
+                    charges[key] = default
+        except:
+            charges = {
+                'supervision': True, 'supervision_percentage': 10.0,
+                'admin': True, 'admin_percentage': 4.0,
+                'insurance': True, 'insurance_percentage': 1.0,
+                'transport': True, 'transport_percentage': 3.0,
+                'contingency': True, 'contingency_percentage': 3.0
+            }
+        
+        # Calculate totals
+        items_total = sum(float(item['quantity'] or 0) * float(item['unit_price'] or 0) for item in items)
+        
+        total_discounts = 0
+        for item in items:
+            subtotal = float(item['quantity'] or 0) * float(item['unit_price'] or 0)
+            if item.get('discount_type') == 'percentage':
+                total_discounts += subtotal * (float(item.get('discount_value', 0)) / 100)
+            elif item.get('discount_type') == 'fixed':
+                total_discounts += float(item.get('discount_value', 0))
+        
+        items_after_discount = items_total - total_discounts
+        
+        # Get percentages safely
+        supervision_pct = float(charges.get('supervision_percentage', 10.0))
+        admin_pct = float(charges.get('admin_percentage', 4.0))
+        insurance_pct = float(charges.get('insurance_percentage', 1.0))
+        transport_pct = float(charges.get('transport_percentage', 3.0))
+        contingency_pct = float(charges.get('contingency_percentage', 3.0))
+        
+        supervision = items_after_discount * (supervision_pct / 100) if charges.get('supervision') else 0
+        admin = items_after_discount * (admin_pct / 100) if charges.get('admin') else 0
+        insurance = items_after_discount * (insurance_pct / 100) if charges.get('insurance') else 0
+        transport = items_after_discount * (transport_pct / 100) if charges.get('transport') else 0
+        contingency = items_after_discount * (contingency_pct / 100) if charges.get('contingency') else 0
+        
+        subtotal_general = items_after_discount + supervision + admin + insurance + transport + contingency
+        itbis = subtotal_general * 0.18
+        grand_total = subtotal_general + itbis
+        
+        # Create PDF with modernized design
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
+        # ==================== HEADER: METPRO BRANDING (MODERNIZED) ====================
+        pdf.set_font('Arial', 'B', 20)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 8, 'METPRO', 0, 1, 'L')
+        
+        pdf.set_font('Arial', '', 8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 4, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'L')
+        
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, República Dominicana', 0, 1, 'L')
+        pdf.cell(0, 3, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'L')
+        
+        pdf.ln(8)
+        
+        # ==================== TITLE: FACTURA (REFINED) ====================
+        pdf.set_font('Arial', 'B', 14)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 7, 'FACTURA', 0, 1, 'L')
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(6)
+        
+        # ==================== INVOICE INFO & CLIENT (TWO COLUMNS) ====================
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(100, 100, 100)
+        
+        # Left column: Invoice info
+        left_x = 10
+        right_x = 110
+        start_y = pdf.get_y()
+        
+        pdf.set_xy(left_x, start_y)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Número de Factura:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{invoice["quote_id"]}', 0, 1)
+        
+        pdf.set_x(left_x)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Fecha de Emisión:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{invoice["date"]}', 0, 1)
+        
+        if invoice.get('project_name'):
+            pdf.set_x(left_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(35, 4, 'Proyecto:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{invoice["project_name"]}', 0, 1)
+        
+        # Right column: Client info
+        pdf.set_xy(right_x, start_y)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(25, 4, 'Cliente:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{client["company_name"]}', 0, 1)
+        
+        if client.get('contact_name'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Contacto:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["contact_name"]}', 0, 1)
+        
+        if client.get('email'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Email:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["email"]}', 0, 1)
+        
+        if client.get('phone'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Teléfono:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["phone"]}', 0, 1)
+        
+        if client.get('address'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Dirección:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["address"]}', 0, 1)
+        
+        if client.get('tax_id'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'RNC:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["tax_id"]}', 0, 1)
+        
+        pdf.ln(8)
+        
+        # ==================== SECTION: ITEMS TABLE (MODERN DESIGN) ====================
+        pdf.set_font('Arial', 'B', 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Detalle de Items', 0, 1, 'L')
+        pdf.ln(2)
+        
+        # Table headers with subtle background
+        pdf.set_fill_color(245, 245, 245)
+        pdf.set_draw_color(220, 220, 220)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(85, 6, 'DESCRIPCIÓN', 1, 0, 'L', True)
+        pdf.cell(25, 6, 'CANTIDAD', 1, 0, 'C', True)
+        pdf.cell(35, 6, 'PRECIO UNIT.', 1, 0, 'R', True)
+        pdf.cell(45, 6, 'TOTAL', 1, 1, 'R', True)
+        
+        # Table rows with alternating colors
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        row_color = True
+        
+        for item in items:
+            qty = float(item['quantity'] or 0)
+            price = float(item['unit_price'] or 0)
+            subtotal = qty * price
+            product_name = str(item['product_name'])[:50] if item.get('product_name') else 'Item'
+            
+            if row_color:
+                pdf.set_fill_color(252, 252, 252)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+            
+            pdf.cell(85, 5, product_name, 1, 0, 'L', True)
+            pdf.cell(25, 5, f'{qty:.2f}', 1, 0, 'C', True)
+            pdf.cell(35, 5, f'${price:,.2f}', 1, 0, 'R', True)
+            pdf.cell(45, 5, f'${subtotal:,.2f}', 1, 1, 'R', True)
+            
+            row_color = not row_color
+        
+        pdf.ln(6)
+        
+        # ==================== SECTION: FINANCIAL SUMMARY (CLEAN LAYOUT) ====================
+        pdf.set_font('Arial', 'B', 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Resumen Financiero', 0, 1, 'L')
+        pdf.ln(2)
+        
+        # Financial summary table with right alignment
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        summary_x = 120
+        
+        # Subtotal de Items
+        pdf.set_x(summary_x)
+        pdf.cell(45, 4, 'Subtotal de Items:', 0, 0, 'L')
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(25, 4, f'${items_total:,.2f}', 0, 1, 'R')
+        
+        # Discounts if applicable
+        if total_discounts > 0:
+            pdf.set_x(summary_x)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(45, 4, 'Total Descuentos:', 0, 0, 'L')
+            pdf.set_text_color(200, 50, 50)
+            pdf.cell(25, 4, f'-${total_discounts:,.2f}', 0, 1, 'R')
+            
+            pdf.set_x(summary_x)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(45, 4, 'Después de Descuentos:', 0, 0, 'L')
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(25, 4, f'${items_after_discount:,.2f}', 0, 1, 'R')
+            pdf.ln(1)
+        
+        # Surcharges with smaller, lighter text
+        pdf.set_font('Arial', '', 7)
+        if charges.get('supervision'):
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Supervisión ({supervision_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${supervision:,.2f}', 0, 1, 'R')
+        if charges.get('admin'):
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Administración ({admin_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${admin:,.2f}', 0, 1, 'R')
+        if charges.get('insurance'):
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Seguro ({insurance_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${insurance:,.2f}', 0, 1, 'R')
+        if charges.get('transport'):
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Transporte ({transport_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${transport:,.2f}', 0, 1, 'R')
+        if charges.get('contingency'):
+            pdf.set_x(summary_x)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(45, 4, f'Contingencia ({contingency_pct:.1f}%):', 0, 0, 'L')
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(25, 4, f'${contingency:,.2f}', 0, 1, 'R')
+        
+        pdf.ln(2)
+        
+        # Subtotal line separator
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(summary_x, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(2)
+        
+        # SUBTOTAL GENERAL
+        pdf.set_x(summary_x)
+        pdf.set_font('Arial', 'B', 8)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(45, 5, 'Subtotal General:', 0, 0, 'L')
+        pdf.cell(25, 5, f'${subtotal_general:,.2f}', 0, 1, 'R')
+        
+        # ITBIS (18%)
+        pdf.set_x(summary_x)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(45, 4, 'ITBIS (18%):', 0, 0, 'L')
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(25, 4, f'${itbis:,.2f}', 0, 1, 'R')
+        
+        pdf.ln(1)
+        
+        # Total line separator
+        pdf.set_draw_color(200, 200, 200)
+        pdf.line(summary_x, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(2)
+        
+        # TOTAL GENERAL (emphasized)
+        pdf.set_x(summary_x)
+        pdf.set_font('Arial', 'B', 11)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(45, 7, 'TOTAL A PAGAR:', 0, 0, 'L')
+        pdf.cell(25, 7, f'${grand_total:,.2f}', 0, 1, 'R')
+        
+        pdf.ln(8)
+        
+        # ==================== SECTION: PROJECT & DATE ====================
+        if invoice.get('project_name'):
+            pdf.set_font('Arial', 'B', 8)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 5, 'PROYECTO / PROJECT', 0, 1, 'L')
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(0, 4, f'Nombre: {invoice["project_name"]}', 0, 1, 'L')
+            pdf.ln(2)
+        
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(0, 4, f'Fecha de Emisión / Issue Date: {invoice["date"]}', 0, 1, 'L')
+        pdf.ln(8)
+        
+        # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(100, 100, 100)
+        
+        sig_y = pdf.get_y()
+        pdf.set_xy(20, sig_y + 15)
+        pdf.set_draw_color(180, 180, 180)
+        pdf.line(20, sig_y + 15, 80, sig_y + 15)
+        pdf.set_xy(20, sig_y + 16)
+        pdf.cell(60, 4, 'Autorizado Por', 0, 0, 'C')
+        
+        pdf.set_xy(130, sig_y + 15)
+        pdf.line(130, sig_y + 15, 190, sig_y + 15)
+        pdf.set_xy(130, sig_y + 16)
+        pdf.cell(60, 4, 'Recibido Por Cliente', 0, 0, 'C')
+        
+        # ==================== FOOTER: COMPACT INFO ====================
+        pdf.set_y(-20)
+        pdf.set_font('Arial', '', 6)
+        pdf.set_text_color(140, 140, 140)
+        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.set_font('Arial', 'I', 6)
+        pdf.cell(0, 3, f'Factura {invoice["quote_id"]} | {invoice["date"]} | Página 1 de 1', 0, 1, 'C')
+        
+        pdf_bytes = pdf.output()
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename={invoice_id}_factura.pdf'}
+        )
+    
+    except Exception as e:
+        print(f"PDF GENERATION ERROR for invoice {invoice_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f'Invoice PDF generation failed: {str(e)}')
+    finally:
+        if conn:
+            conn.close()
         
      # redeploy after removing env
      # redeploy trigger 
