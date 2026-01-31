@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
-from jose import jwt
+from jose import jwt, JWTError
 import os
 import psycopg
 from psycopg.rows import dict_row
@@ -14,16 +15,20 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+security = HTTPBearer()
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 
 @router.post("/login")
 def login(payload: LoginRequest):
@@ -42,3 +47,13 @@ def login(payload: LoginRequest):
 
     token = create_access_token({"sub": payload.username})
     return {"access_token": token, "token_type": "bearer"}
+
+
+# ⭐⭐⭐ TOKEN VERIFICATION ADDED HERE ⭐⭐⭐
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload  # contains "sub" (username)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
