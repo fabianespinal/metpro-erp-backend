@@ -1750,8 +1750,308 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
     finally:
         if conn:
             conn.close()
+
+@app.get('/invoices/{invoice_id}/conduce/pdf')
+def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token)):
+    """Generate professional METPRO CONDUCE (Delivery Note) PDF"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get invoice (from quotes table - invoices are quotes with INV- prefix and Invoiced status)
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s AND status = %s', (invoice_id, 'Invoiced'))
+        invoice = cursor.fetchone()
+        if not invoice:
+            raise HTTPException(status_code=404, detail='Invoice not found')
+        
+        # Get client
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
+        client = cursor.fetchone()
+        if not client:
+            raise HTTPException(status_code=404, detail='Client not found')
+        
+        # Get items (from quote_items table)
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (invoice_id,))
+        items = cursor.fetchall()
+        
+        # Create PDF with modernized design
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        
+        # ==================== HEADER: LOGO SPACE + METPRO BRANDING ====================
+        # Logo placeholder (add actual logo with pdf.image() if you have the file)
+        # pdf.image('path/to/logo.png', 10, 10, 30)  # Uncomment and set path when logo is available
+        
+        # Company info aligned to the right
+        pdf.set_font('Arial', 'B', 20)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 8, 'METPRO', 0, 1, 'R')
+        
+        pdf.set_font('Arial', '', 8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 4, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'R')
+        
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe', 0, 1, 'R')
+        pdf.cell(0, 3, 'Santo Domingo, República Dominicana', 0, 1, 'R')
+        pdf.cell(0, 3, 'Tel: (809) 555-1234', 0, 1, 'R')
+        pdf.cell(0, 3, 'RNC: 1-23-45678-9', 0, 1, 'R')
+        
+        pdf.ln(8)
+        
+        # ==================== TITLE: CONDUCE (REFINED) ====================
+        pdf.set_font('Arial', 'B', 16)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 8, 'CONDUCE', 0, 1, 'C')
+        pdf.set_font('Arial', '', 8)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 4, 'Nota de Entrega / Delivery Note', 0, 1, 'C')
+        
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
+        pdf.ln(6)
+        
+        # ==================== DOCUMENT INFO & CLIENT (TWO COLUMNS) ====================
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(100, 100, 100)
+        
+        # Left column: Document info
+        left_x = 10
+        right_x = 110
+        start_y = pdf.get_y()
+        
+        pdf.set_xy(left_x, start_y)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Número de Conduce:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        conduce_number = f"CD-{invoice['quote_id']}"
+        pdf.cell(0, 4, conduce_number, 0, 1)
+        
+        pdf.set_x(left_x)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Factura Relacionada:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{invoice["quote_id"]}', 0, 1)
+        
+        # REMOVED: Original quote reference (not stored in current schema)
+        
+        pdf.set_x(left_x)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(35, 4, 'Fecha de Entrega:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{invoice["date"]}', 0, 1)
+        
+        if invoice.get('project_name'):
+            pdf.set_x(left_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(35, 4, 'Proyecto:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{invoice["project_name"]}', 0, 1)
+        
+        # Right column: Client info
+        pdf.set_xy(right_x, start_y)
+        pdf.set_font('Arial', 'B', 8)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(0, 4, 'ENTREGAR A:', 0, 1)
+        pdf.ln(1)
+        
+        pdf.set_x(right_x)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(25, 4, 'Cliente:', 0, 0)
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 4, f'{client["company_name"]}', 0, 1)
+        
+        if client.get('contact_name'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Contacto:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["contact_name"]}', 0, 1)
+        
+        if client.get('phone'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Teléfono:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["phone"]}', 0, 1)
+        
+        if client.get('address'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'Dirección:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["address"]}', 0, 1)
+        
+        if client.get('tax_id'):
+            pdf.set_x(right_x)
+            pdf.set_font('Arial', 'B', 7)
+            pdf.set_text_color(80, 80, 80)
+            pdf.cell(25, 4, 'RNC:', 0, 0)
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 4, f'{client["tax_id"]}', 0, 1)
+        
+        pdf.ln(10)
+        
+        # ==================== SECTION: ITEMS TABLE (SIMPLIFIED - NO PRICES) ====================
+        pdf.set_font('Arial', 'B', 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Detalle de Mercancía', 0, 1, 'L')
+        pdf.ln(2)
+        
+        # Table headers with subtle background
+        pdf.set_fill_color(245, 245, 245)
+        pdf.set_draw_color(220, 220, 220)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(30, 6, 'CANTIDAD', 1, 0, 'C', True)
+        pdf.cell(40, 6, 'UNIDAD', 1, 0, 'C', True)
+        pdf.cell(120, 6, 'DESCRIPCIÓN', 1, 1, 'L', True)
+        
+        # Table rows with alternating colors
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(30, 30, 30)
+        row_color = True
+        
+        for item in items:
+            qty = float(item['quantity'] or 0)
+            product_name = str(item['product_name'])[:70] if item.get('product_name') else 'Item'
+            # Default unit to "UND" (unidades) since our schema doesn't have unit field
+            unit = 'UND'
+            
+            if row_color:
+                pdf.set_fill_color(252, 252, 252)
+            else:
+                pdf.set_fill_color(255, 255, 255)
+            
+            pdf.cell(30, 5, f'{qty:.2f}', 1, 0, 'C', True)
+            pdf.cell(40, 5, unit, 1, 0, 'C', True)
+            pdf.cell(120, 5, product_name, 1, 1, 'L', True)
+            
+            row_color = not row_color
+        
+        pdf.ln(10)
+        
+        # ==================== SECTION: DELIVERY CONDITIONS ====================
+        pdf.set_font('Arial', 'B', 8)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Condiciones de Entrega', 0, 1, 'L')
+        pdf.ln(1)
+        
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.multi_cell(0, 4, 'La mercancía descrita en este conduce ha sido entregada en perfectas condiciones. El receptor confirma haber recibido los artículos listados y acepta que están completos y en buen estado.', 0, 'L')
+        
+        pdf.ln(8)
+        
+        # ==================== SECTION: SIGNATURE AREA ====================
+        pdf.set_font('Arial', 'B', 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 5, 'Firmas y Confirmación', 0, 1, 'L')
+        pdf.ln(3)
+        
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(100, 100, 100)
+        
+        sig_y = pdf.get_y()
+        
+        # Left signature: Delivered by
+        pdf.set_xy(15, sig_y + 15)
+        pdf.set_draw_color(180, 180, 180)
+        pdf.line(15, sig_y + 15, 90, sig_y + 15)
+        
+        pdf.set_xy(15, sig_y + 17)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.cell(75, 4, 'ENTREGADO POR', 0, 1, 'C')
+        
+        pdf.set_x(15)
+        pdf.set_font('Arial', '', 6)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(75, 3, 'Nombre:', 0, 1, 'L')
+        pdf.set_x(15)
+        pdf.cell(75, 3, 'Fecha:', 0, 1, 'L')
+        pdf.set_x(15)
+        pdf.cell(75, 3, 'Hora:', 0, 1, 'L')
+        
+        # Right signature: Received by
+        pdf.set_xy(115, sig_y + 15)
+        pdf.line(115, sig_y + 15, 190, sig_y + 15)
+        
+        pdf.set_xy(115, sig_y + 17)
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(75, 4, 'RECIBIDO POR', 0, 1, 'C')
+        
+        pdf.set_x(115)
+        pdf.set_font('Arial', '', 6)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(75, 3, 'Nombre:', 0, 1, 'L')
+        pdf.set_x(115)
+        pdf.cell(75, 3, 'Cédula:', 0, 1, 'L')
+        pdf.set_x(115)
+        pdf.cell(75, 3, 'Fecha:', 0, 1, 'L')
+        pdf.set_x(115)
+        pdf.cell(75, 3, 'Hora:', 0, 1, 'L')
+        
+        pdf.ln(8)
+        
+        # ==================== SECTION: NOTES ====================
+        pdf.set_font('Arial', 'B', 7)
+        pdf.set_text_color(80, 80, 80)
+        pdf.cell(0, 4, 'OBSERVACIONES:', 0, 1, 'L')
+        pdf.ln(1)
+        
+        # Draw observation box
+        pdf.set_draw_color(220, 220, 220)
+        pdf.rect(10, pdf.get_y(), 190, 20)
+        
+        pdf.ln(22)
+        
+        # ==================== FOOTER: COMPACT INFO ====================
+        pdf.set_y(-20)
+        pdf.set_font('Arial', '', 6)
+        pdf.set_text_color(140, 140, 140)
+        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.set_font('Arial', 'I', 6)
+        pdf.cell(0, 3, f'Conduce {conduce_number} | Factura {invoice["quote_id"]} | {invoice["date"]} | Página 1 de 1', 0, 1, 'C')
+        
+        pdf_bytes = pdf.output()
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type='application/pdf',
+            headers={'Content-Disposition': f'attachment; filename={conduce_number}_conduce.pdf'}
+        )
+    
+    except Exception as e:
+        print(f"PDF GENERATION ERROR for conduce {invoice_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f'Conduce PDF generation failed: {str(e)}')
+    finally:
+        if conn:
+            conn.close()
         
      # redeploy after removing env
      # redeploy trigger 
-     # ← FIXED
+     # ← FIXED all at once 
      
