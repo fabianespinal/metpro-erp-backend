@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-load_dotenv()  # Load environment variables from .env file
+load_dotenv()
 
 from fastapi import (
     FastAPI,
@@ -9,33 +9,29 @@ from fastapi import (
     status,
     Header,
     File,
-    UploadFile,
-    Form
+    UploadFile
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer
 
 from pydantic import BaseModel
 from typing import List, Optional
 
-import psycopg  # psycopg3
-from psycopg.rows import dict_row  # row factory for dict-style rows
-
+import psycopg
+from psycopg.rows import dict_row
 import json
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-
 from supabase import create_client, Client
-
 import csv
 import io
 from fpdf import FPDF
-import re
+import re  # For sanitize_text (optional but recommended)
 
-# Import your authentication utilities (NOT routers)
-from auth import verify_token
+# ✅ CRITICAL: verify_token is DEFINED IN THIS FILE (not imported)
+# DO NOT add "from auth import verify_token" - it doesn't exist!
 
 
 def sanitize_text(text):
