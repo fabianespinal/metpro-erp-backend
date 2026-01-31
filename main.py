@@ -1089,7 +1089,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(25, 7, f'${grand_total:,.2f}', 0, 1, 'R')
         
         pdf.ln(12)
-
+        
         # ==================== SECTION: NOTES (PROJECT & DATE) ====================
         if quote.get('project_name'):
             pdf.set_font('Arial', 'B', 8)
