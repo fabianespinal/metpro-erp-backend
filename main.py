@@ -29,6 +29,7 @@ import csv
 import io
 from fpdf import FPDF
 import re  # For sanitize_text (optional but recommended)
+from auth import router as auth_router
 
 # ✅ CRITICAL: verify_token is DEFINED IN THIS FILE (not imported)
 # DO NOT add "from auth import verify_token" - it doesn't exist!
@@ -74,6 +75,9 @@ pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 security = HTTPBearer()
 
 app = FastAPI(title='METPRO ERP API')
+
+# Authentication routes
+app.include_router(auth_router)
 
 # Supabase Storage configuration
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://qbyectandmkdmajzolzb.supabase.co")
