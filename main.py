@@ -350,20 +350,6 @@ def calculate_quote_totals(items: List[dict], charges: dict):
         'itbis': round(itbis, 2),
         'grand_total': round(grand_total, 2)
     }
-    
-    return {
-        'items_total': round(items_total, 2),
-        'total_discounts': round(total_discounts, 2),
-        'items_after_discount': round(items_after_discount, 2),
-        'supervision': round(supervision, 2),
-        'admin': round(admin, 2),
-        'insurance': round(insurance, 2),
-        'transport': round(transport, 2),
-        'contingency': round(contingency, 2),
-        'subtotal_general': round(subtotal_general, 2),
-        'itbis': round(itbis, 2),
-        'grand_total': round(grand_total, 2)
-    }
 
 # Quote endpoints (same as before - no changes needed)
 @app.post('/quotes/', response_model=dict)
@@ -531,6 +517,7 @@ def delete_quote(quote_id: str, current_user: dict = Depends(verify_token)):
         
         # Delete items first (foreign key constraint)
         cursor.execute('DELETE FROM quote_items WHERE quote_id = %s', (quote_id,))
+
         # Delete quote
         cursor.execute('DELETE FROM quotes WHERE quote_id = %s', (quote_id,))
         conn.commit()
@@ -751,6 +738,26 @@ def download_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Download failed: {str(e)}')
 
+import re
+
+def sanitize_text(text):
+    """Remove emojis and non-ASCII characters that FPDF can't handle"""
+    if text is None:
+        return ''
+    
+    # Convert to string
+    text = str(text)
+    
+    # Remove emojis and other unsupported Unicode characters
+    # Keep only ASCII printable characters plus basic Latin extended
+    text = re.sub(r'[^\x00-\x7F\xA0-\xFF]+', '', text)
+    
+    # Remove any remaining problematic characters
+    text = text.encode('latin-1', errors='ignore').decode('latin-1')
+    
+    return text
+
+
 @app.get('/quotes/{quote_id}/pdf')
 def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
     """Generate professional METPRO PDF with exact branding and layout"""
@@ -839,11 +846,11 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 4, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'L')
+        pdf.cell(0, 4, 'ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'L')
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, República Dominicana', 0, 1, 'L')
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, Republica Dominicana', 0, 1, 'L')
         pdf.cell(0, 3, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'L')
         
         pdf.ln(8)
@@ -851,7 +858,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         # ==================== TITLE: COTIZACIÓN (REFINED) ====================
         pdf.set_font('Arial', 'B', 14)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 7, 'COTIZACIÓN', 0, 1, 'L')
+        pdf.cell(0, 7, 'COTIZACION', 0, 1, 'L')
         pdf.set_draw_color(220, 220, 220)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(6)
@@ -868,10 +875,10 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.set_xy(left_x, start_y)
         pdf.set_font('Arial', 'B', 7)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(35, 4, 'Número de Cotización:', 0, 0)
+        pdf.cell(35, 4, 'Numero de Cotizacion:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{quote["quote_id"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(quote["quote_id"]), 0, 1)
         
         pdf.set_x(left_x)
         pdf.set_font('Arial', 'B', 7)
@@ -879,7 +886,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(35, 4, 'Fecha:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{quote["date"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(quote["date"]), 0, 1)
         
         if quote.get('project_name'):
             pdf.set_x(left_x)
@@ -888,7 +895,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             pdf.cell(35, 4, 'Proyecto:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{quote["project_name"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(quote["project_name"])[:60], 0, 1)
         
         # Right column: Client info
         pdf.set_xy(right_x, start_y)
@@ -897,7 +904,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(25, 4, 'Cliente:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{client["company_name"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(client["company_name"])[:40], 0, 1)
         
         if client.get('contact_name'):
             pdf.set_x(right_x)
@@ -906,7 +913,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             pdf.cell(25, 4, 'Contacto:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["contact_name"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["contact_name"])[:40], 0, 1)
         
         if client.get('email'):
             pdf.set_x(right_x)
@@ -915,25 +922,25 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             pdf.cell(25, 4, 'Email:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["email"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["email"])[:40], 0, 1)
         
         if client.get('phone'):
             pdf.set_x(right_x)
             pdf.set_font('Arial', 'B', 7)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(25, 4, 'Teléfono:', 0, 0)
+            pdf.cell(25, 4, 'Telefono:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["phone"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["phone"])[:30], 0, 1)
         
         if client.get('address'):
             pdf.set_x(right_x)
             pdf.set_font('Arial', 'B', 7)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(25, 4, 'Dirección:', 0, 0)
+            pdf.cell(25, 4, 'Direccion:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["address"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["address"])[:40], 0, 1)
         
         if client.get('tax_id'):
             pdf.set_x(right_x)
@@ -942,7 +949,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             pdf.cell(25, 4, 'RNC:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["tax_id"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["tax_id"])[:30], 0, 1)
         
         pdf.ln(8)
         
@@ -957,7 +964,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.set_draw_color(220, 220, 220)
         pdf.set_font('Arial', 'B', 7)
         pdf.set_text_color(60, 60, 60)
-        pdf.cell(85, 6, 'DESCRIPCIÓN', 1, 0, 'L', True)
+        pdf.cell(85, 6, 'DESCRIPCION', 1, 0, 'L', True)
         pdf.cell(25, 6, 'CANTIDAD', 1, 0, 'C', True)
         pdf.cell(35, 6, 'PRECIO UNIT.', 1, 0, 'R', True)
         pdf.cell(45, 6, 'TOTAL', 1, 1, 'R', True)
@@ -971,7 +978,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             qty = float(item['quantity'] or 0)
             price = float(item['unit_price'] or 0)
             subtotal = qty * price
-            product_name = str(item['product_name'])[:50] if item.get('product_name') else 'Item'
+            product_name = sanitize_text(item.get('product_name', 'Item'))[:50]
             
             if row_color:
                 pdf.set_fill_color(252, 252, 252)
@@ -1014,7 +1021,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             
             pdf.set_x(summary_x)
             pdf.set_text_color(60, 60, 60)
-            pdf.cell(45, 4, 'Después de Descuentos:', 0, 0, 'L')
+            pdf.cell(45, 4, 'Despues de Descuentos:', 0, 0, 'L')
             pdf.set_text_color(30, 30, 30)
             pdf.cell(25, 4, f'${items_after_discount:,.2f}', 0, 1, 'R')
             pdf.ln(1)
@@ -1024,13 +1031,13 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         if charges.get('supervision'):
             pdf.set_x(summary_x)
             pdf.set_text_color(100, 100, 100)
-            pdf.cell(45, 4, f'Supervisión ({supervision_pct:.1f}%):', 0, 0, 'L')
+            pdf.cell(45, 4, f'Supervision ({supervision_pct:.1f}%):', 0, 0, 'L')
             pdf.set_text_color(60, 60, 60)
             pdf.cell(25, 4, f'${supervision:,.2f}', 0, 1, 'R')
         if charges.get('admin'):
             pdf.set_x(summary_x)
             pdf.set_text_color(100, 100, 100)
-            pdf.cell(45, 4, f'Administración ({admin_pct:.1f}%):', 0, 0, 'L')
+            pdf.cell(45, 4, f'Administracion ({admin_pct:.1f}%):', 0, 0, 'L')
             pdf.set_text_color(60, 60, 60)
             pdf.cell(25, 4, f'${admin:,.2f}', 0, 1, 'R')
         if charges.get('insurance'):
@@ -1090,20 +1097,17 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         pdf.ln(12)
         
-        # ==================== SECTION: NOTES (PROJECT & DATE) ====================
-        if quote.get('project_name'):
+        # ==================== SECTION: NOTES (FROM UI FORM) ====================
+        if quote.get('notes') and quote['notes'].strip():
             pdf.set_font('Arial', 'B', 8)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 5, 'PROYECTO / PROJECT', 0, 1, 'L')
+            pdf.cell(0, 5, 'NOTAS / NOTES', 0, 1, 'L')
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(60, 60, 60)
-            pdf.cell(0, 4, f'Nombre: {quote["project_name"]}', 0, 1, 'L')
-            pdf.ln(2)
-        
-        pdf.set_font('Arial', '', 7)
-        pdf.set_text_color(60, 60, 60)
-        pdf.cell(0, 4, f'Fecha / Date: {quote["date"]}', 0, 1, 'L')
-        pdf.ln(8)
+            # Handle multi-line notes properly with word wrap
+            pdf.multi_cell(0, 4, quote['notes'].strip(), border=0, align='L', fill=False)
+            pdf.ln(3)
+        pdf.ln(5)  # Add space before signatures
         
         # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
         pdf.set_font('Arial', '', 7)
@@ -1125,10 +1129,10 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.set_y(-20)
         pdf.set_font('Arial', '', 6)
         pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
         pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
         pdf.set_font('Arial', 'I', 6)
-        pdf.cell(0, 3, f'Cotización {quote["quote_id"]} | {quote["date"]} | Página 1 de 1', 0, 1, 'C')
+        pdf.cell(0, 3, f'Cotizacion {sanitize_text(quote["quote_id"])} | {sanitize_text(quote["date"])} | Pagina 1 de 1', 0, 1, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
@@ -1146,215 +1150,6 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         if conn:
             conn.close()
 
-# Authentication endpoint - REAL database authentication
-@app.post('/auth/login')
-def login(login_data: LoginRequest):
-    """Login endpoint that checks Supabase database"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # Get user from database
-        cursor.execute(
-            'SELECT id, username, email, hashed_password, role, is_active FROM users WHERE username = %s',
-            (login_data.username,)
-        )
-        user = cursor.fetchone()
-        # Check if user exists
-        if not user:
-            raise HTTPException(status_code=401, detail='Invalid username or password')
-        # Check if user is active
-        if not user['is_active']:
-            raise HTTPException(status_code=403, detail='Account is deactivated')
-        # Verify password
-        if not pwd_context.verify(login_data.password, user['hashed_password']):
-            raise HTTPException(status_code=401, detail='Invalid username or password')
-        # Create JWT token
-        access_token = create_access_token(data={
-            'sub': user['username'],
-            'user_id': user['id'],
-            'role': user['role']
-        })
-        return {
-            'access_token': access_token,
-            'token_type': 'bearer',
-            'username': user['username'],
-            'email': user['email'],
-            'role': user['role'],
-            'message': 'Login successful'
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Login error: {str(e)}")
-        raise HTTPException(status_code=500, detail='Internal server error')
-    finally:
-        if conn:
-            conn.close()
-
-    # Product Endpoints - POSTGRESQL SYNTAX (NOT SQLite)
-@app.post('/products/', response_model=Product)
-def create_product(product: ProductBase, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO products (name, description, unit_price)
-            VALUES (%s, %s, %s)
-            RETURNING id
-        ''', (product.name, product.description, product.unit_price))
-        product_id = cursor.fetchone()['id']
-        conn.commit()
-        return Product(
-            id=product_id,
-            name=product.name,
-            description=product.description,
-            unit_price=product.unit_price
-        )
-    except psycopg2.IntegrityError as e:
-        if conn: conn.rollback()
-        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
-            raise HTTPException(status_code=400, detail='Product name already exists')
-        raise HTTPException(status_code=400, detail='Database integrity error')
-    except Exception as e:
-        if conn: conn.rollback()
-        raise HTTPException(status_code=500, detail=f'Failed to create product: {str(e)}')
-    finally:
-        if conn: conn.close()
-
-@app.get('/products/', response_model=List[Product])
-def get_products(current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name, description, unit_price FROM products ORDER BY name')
-        rows = cursor.fetchall()
-        return [
-            Product(
-                id=row['id'],
-                name=row['name'],
-                description=row['description'],
-                unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
-            )
-            for row in rows
-        ]
-    finally:
-        if conn: conn.close()
-
-@app.get('/products/{product_id}', response_model=Product)
-def get_product(product_id: int, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name, description, unit_price FROM products WHERE id = %s', (product_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail='Product not found')
-        return Product(
-            id=row['id'],
-            name=row['name'],
-            description=row['description'],
-            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
-        )
-    finally:
-        if conn: conn.close()
-
-@app.put('/products/{product_id}', response_model=Product)
-def update_product(product_id: int, product: ProductBase, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE products 
-            SET name = %s, description = %s, unit_price = %s 
-            WHERE id = %s
-            RETURNING id, name, description, unit_price
-        ''', (product.name, product.description, product.unit_price, product_id))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail='Product not found')
-        conn.commit()
-        return Product(
-            id=row['id'],
-            name=row['name'],
-            description=row['description'],
-            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
-        )
-    except Exception as e:
-        if conn: conn.rollback()
-        raise HTTPException(status_code=500, detail=f'Failed to update product: {str(e)}')
-    finally:
-        if conn: conn.close()
-
-@app.delete('/products/{product_id}')
-def delete_product(product_id: int, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM products WHERE id = %s', (product_id,))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail='Product not found')
-        conn.commit()
-        return {'message': 'Product deleted successfully'}
-    except Exception as e:
-        if conn: conn.rollback()
-        raise HTTPException(status_code=500, detail=f'Failed to delete product: {str(e)}')
-    finally:
-        if conn: conn.close()
-
-@app.post('/products/import-csv')
-async def import_products_csv(file: UploadFile = File(...), current_user: dict = Depends(verify_token)):
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail='File must be CSV')
-    
-    conn = None
-    try:
-        content = await file.read()
-        csv_text = content.decode('utf-8')
-        csv_reader = csv.DictReader(io.StringIO(csv_text))
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        imported = 0
-        skipped = 0
-        
-        for row in csv_reader:
-            try:
-                name = row.get('name', '').strip()
-                if not name:
-                    skipped += 1
-                    continue
-                
-                description = row.get('description', '').strip()
-                unit_price = float(row.get('unit_price', 0))
-                
-                cursor.execute('''
-                    INSERT INTO products (name, description, unit_price)
-                    VALUES (%s, %s, %s)
-                ''', (name, description, unit_price))
-                
-                imported += 1
-            except Exception as e:
-                skipped += 1
-        
-        conn.commit()
-        
-        return {
-            'imported': imported,
-            'skipped': skipped,
-            'message': f'Successfully imported {imported} products, skipped {skipped}'
-        }
-    except Exception as e:
-        if conn: conn.rollback()
-        raise HTTPException(status_code=500, detail=f'CSV import failed: {str(e)}')
-    finally:
-        if conn: conn.close()
 
 @app.get('/invoices/{invoice_id}/pdf')
 def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token)):
@@ -1444,11 +1239,11 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 4, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'L')
+        pdf.cell(0, 4, 'ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'L')
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, República Dominicana', 0, 1, 'L')
+        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, Republica Dominicana', 0, 1, 'L')
         pdf.cell(0, 3, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'L')
         
         pdf.ln(8)
@@ -1473,18 +1268,18 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_xy(left_x, start_y)
         pdf.set_font('Arial', 'B', 7)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(35, 4, 'Número de Factura:', 0, 0)
+        pdf.cell(35, 4, 'Numero de Factura:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{invoice["quote_id"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(invoice["quote_id"]), 0, 1)
         
         pdf.set_x(left_x)
         pdf.set_font('Arial', 'B', 7)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(35, 4, 'Fecha de Emisión:', 0, 0)
+        pdf.cell(35, 4, 'Fecha de Emision:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{invoice["date"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(invoice["date"]), 0, 1)
         
         if invoice.get('project_name'):
             pdf.set_x(left_x)
@@ -1493,7 +1288,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(35, 4, 'Proyecto:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{invoice["project_name"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(invoice["project_name"])[:60], 0, 1)
         
         # Right column: Client info
         pdf.set_xy(right_x, start_y)
@@ -1502,7 +1297,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.cell(25, 4, 'Cliente:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{client["company_name"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(client["company_name"])[:40], 0, 1)
         
         if client.get('contact_name'):
             pdf.set_x(right_x)
@@ -1511,7 +1306,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(25, 4, 'Contacto:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["contact_name"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["contact_name"])[:40], 0, 1)
         
         if client.get('email'):
             pdf.set_x(right_x)
@@ -1520,25 +1315,25 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(25, 4, 'Email:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["email"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["email"])[:40], 0, 1)
         
         if client.get('phone'):
             pdf.set_x(right_x)
             pdf.set_font('Arial', 'B', 7)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(25, 4, 'Teléfono:', 0, 0)
+            pdf.cell(25, 4, 'Telefono:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["phone"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["phone"])[:30], 0, 1)
         
         if client.get('address'):
             pdf.set_x(right_x)
             pdf.set_font('Arial', 'B', 7)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(25, 4, 'Dirección:', 0, 0)
+            pdf.cell(25, 4, 'Direccion:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["address"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["address"])[:40], 0, 1)
         
         if client.get('tax_id'):
             pdf.set_x(right_x)
@@ -1547,7 +1342,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(25, 4, 'RNC:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["tax_id"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["tax_id"])[:30], 0, 1)
         
         pdf.ln(8)
         
@@ -1562,7 +1357,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_draw_color(220, 220, 220)
         pdf.set_font('Arial', 'B', 7)
         pdf.set_text_color(60, 60, 60)
-        pdf.cell(85, 6, 'DESCRIPCIÓN', 1, 0, 'L', True)
+        pdf.cell(85, 6, 'DESCRIPCION', 1, 0, 'L', True)
         pdf.cell(25, 6, 'CANTIDAD', 1, 0, 'C', True)
         pdf.cell(35, 6, 'PRECIO UNIT.', 1, 0, 'R', True)
         pdf.cell(45, 6, 'TOTAL', 1, 1, 'R', True)
@@ -1576,7 +1371,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             qty = float(item['quantity'] or 0)
             price = float(item['unit_price'] or 0)
             subtotal = qty * price
-            product_name = str(item['product_name'])[:50] if item.get('product_name') else 'Item'
+            product_name = sanitize_text(item.get('product_name', 'Item'))[:50]
             
             if row_color:
                 pdf.set_fill_color(252, 252, 252)
@@ -1619,7 +1414,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             
             pdf.set_x(summary_x)
             pdf.set_text_color(60, 60, 60)
-            pdf.cell(45, 4, 'Después de Descuentos:', 0, 0, 'L')
+            pdf.cell(45, 4, 'Despues de Descuentos:', 0, 0, 'L')
             pdf.set_text_color(30, 30, 30)
             pdf.cell(25, 4, f'${items_after_discount:,.2f}', 0, 1, 'R')
             pdf.ln(1)
@@ -1629,13 +1424,13 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         if charges.get('supervision'):
             pdf.set_x(summary_x)
             pdf.set_text_color(100, 100, 100)
-            pdf.cell(45, 4, f'Supervisión ({supervision_pct:.1f}%):', 0, 0, 'L')
+            pdf.cell(45, 4, f'Supervision ({supervision_pct:.1f}%):', 0, 0, 'L')
             pdf.set_text_color(60, 60, 60)
             pdf.cell(25, 4, f'${supervision:,.2f}', 0, 1, 'R')
         if charges.get('admin'):
             pdf.set_x(summary_x)
             pdf.set_text_color(100, 100, 100)
-            pdf.cell(45, 4, f'Administración ({admin_pct:.1f}%):', 0, 0, 'L')
+            pdf.cell(45, 4, f'Administracion ({admin_pct:.1f}%):', 0, 0, 'L')
             pdf.set_text_color(60, 60, 60)
             pdf.cell(25, 4, f'${admin:,.2f}', 0, 1, 'R')
         if charges.get('insurance'):
@@ -1695,20 +1490,17 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         pdf.ln(8)
         
-        # ==================== SECTION: PROJECT & DATE ====================
-        if invoice.get('project_name'):
+                # ==================== SECTION: NOTES (FROM UI FORM) ====================
+        if invoice.get('notes') and invoice['notes'].strip():
             pdf.set_font('Arial', 'B', 8)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 5, 'PROYECTO / PROJECT', 0, 1, 'L')
+            pdf.cell(0, 5, 'NOTAS / NOTES', 0, 1, 'L')
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(60, 60, 60)
-            pdf.cell(0, 4, f'Nombre: {invoice["project_name"]}', 0, 1, 'L')
-            pdf.ln(2)
-        
-        pdf.set_font('Arial', '', 7)
-        pdf.set_text_color(60, 60, 60)
-        pdf.cell(0, 4, f'Fecha de Emisión / Issue Date: {invoice["date"]}', 0, 1, 'L')
-        pdf.ln(8)
+            # Handle multi-line notes properly with word wrap
+            pdf.multi_cell(0, 4, invoice['notes'].strip(), border=0, align='L', fill=False)
+            pdf.ln(3)
+        pdf.ln(5)  # Add space before signatures
         
         # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
         pdf.set_font('Arial', '', 7)
@@ -1730,10 +1522,10 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_y(-20)
         pdf.set_font('Arial', '', 6)
         pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
         pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
         pdf.set_font('Arial', 'I', 6)
-        pdf.cell(0, 3, f'Factura {invoice["quote_id"]} | {invoice["date"]} | Página 1 de 1', 0, 1, 'C')
+        pdf.cell(0, 3, f'Factura {sanitize_text(invoice["quote_id"])} | {sanitize_text(invoice["date"])} | Pagina 1 de 1', 0, 1, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
@@ -1750,6 +1542,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
     finally:
         if conn:
             conn.close()
+
 
 @app.get('/invoices/{invoice_id}/conduce/pdf')
 def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token)):
@@ -1791,12 +1584,12 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 4, 'ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'R')
+        pdf.cell(0, 4, 'ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'R')
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
         pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe', 0, 1, 'R')
-        pdf.cell(0, 3, 'Santo Domingo, República Dominicana', 0, 1, 'R')
+        pdf.cell(0, 3, 'Santo Domingo, Republica Dominicana', 0, 1, 'R')
         pdf.cell(0, 3, 'Tel: (809) 555-1234', 0, 1, 'R')
         pdf.cell(0, 3, 'RNC: 1-23-45678-9', 0, 1, 'R')
         
@@ -1826,10 +1619,10 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_xy(left_x, start_y)
         pdf.set_font('Arial', 'B', 7)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(35, 4, 'Número de Conduce:', 0, 0)
+        pdf.cell(35, 4, 'Numero de Conduce:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        conduce_number = f"CD-{invoice['quote_id']}"
+        conduce_number = f"CD-{sanitize_text(invoice['quote_id'])}"
         pdf.cell(0, 4, conduce_number, 0, 1)
         
         pdf.set_x(left_x)
@@ -1838,9 +1631,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.cell(35, 4, 'Factura Relacionada:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{invoice["quote_id"]}', 0, 1)
-        
-        # REMOVED: Original quote reference (not stored in current schema)
+        pdf.cell(0, 4, sanitize_text(invoice["quote_id"]), 0, 1)
         
         pdf.set_x(left_x)
         pdf.set_font('Arial', 'B', 7)
@@ -1848,7 +1639,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.cell(35, 4, 'Fecha de Entrega:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{invoice["date"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(invoice["date"]), 0, 1)
         
         if invoice.get('project_name'):
             pdf.set_x(left_x)
@@ -1857,7 +1648,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(35, 4, 'Proyecto:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{invoice["project_name"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(invoice["project_name"])[:60], 0, 1)
         
         # Right column: Client info
         pdf.set_xy(right_x, start_y)
@@ -1872,7 +1663,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.cell(25, 4, 'Cliente:', 0, 0)
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 4, f'{client["company_name"]}', 0, 1)
+        pdf.cell(0, 4, sanitize_text(client["company_name"])[:40], 0, 1)
         
         if client.get('contact_name'):
             pdf.set_x(right_x)
@@ -1881,25 +1672,25 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(25, 4, 'Contacto:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["contact_name"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["contact_name"])[:40], 0, 1)
         
         if client.get('phone'):
             pdf.set_x(right_x)
             pdf.set_font('Arial', 'B', 7)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(25, 4, 'Teléfono:', 0, 0)
+            pdf.cell(25, 4, 'Telefono:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["phone"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["phone"])[:30], 0, 1)
         
         if client.get('address'):
             pdf.set_x(right_x)
             pdf.set_font('Arial', 'B', 7)
             pdf.set_text_color(80, 80, 80)
-            pdf.cell(25, 4, 'Dirección:', 0, 0)
+            pdf.cell(25, 4, 'Direccion:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["address"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["address"])[:40], 0, 1)
         
         if client.get('tax_id'):
             pdf.set_x(right_x)
@@ -1908,14 +1699,14 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             pdf.cell(25, 4, 'RNC:', 0, 0)
             pdf.set_font('Arial', '', 7)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4, f'{client["tax_id"]}', 0, 1)
+            pdf.cell(0, 4, sanitize_text(client["tax_id"])[:30], 0, 1)
         
         pdf.ln(10)
         
         # ==================== SECTION: ITEMS TABLE (SIMPLIFIED - NO PRICES) ====================
         pdf.set_font('Arial', 'B', 9)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 5, 'Detalle de Mercancía', 0, 1, 'L')
+        pdf.cell(0, 5, 'Detalle de Mercancia', 0, 1, 'L')
         pdf.ln(2)
         
         # Table headers with subtle background
@@ -1925,7 +1716,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_text_color(60, 60, 60)
         pdf.cell(30, 6, 'CANTIDAD', 1, 0, 'C', True)
         pdf.cell(40, 6, 'UNIDAD', 1, 0, 'C', True)
-        pdf.cell(120, 6, 'DESCRIPCIÓN', 1, 1, 'L', True)
+        pdf.cell(120, 6, 'DESCRIPCION', 1, 1, 'L', True)
         
         # Table rows with alternating colors
         pdf.set_font('Arial', '', 7)
@@ -1934,8 +1725,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         for item in items:
             qty = float(item['quantity'] or 0)
-            product_name = str(item['product_name'])[:70] if item.get('product_name') else 'Item'
-            # Default unit to "UND" (unidades) since our schema doesn't have unit field
+            product_name = sanitize_text(item.get('product_name', 'Item'))[:70]
             unit = 'UND'
             
             if row_color:
@@ -1959,14 +1749,14 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(60, 60, 60)
-        pdf.multi_cell(0, 4, 'La mercancía descrita en este conduce ha sido entregada en perfectas condiciones. El receptor confirma haber recibido los artículos listados y acepta que están completos y en buen estado.', 0, 'L')
+        pdf.multi_cell(0, 4, 'La mercancia descrita en este conduce ha sido entregada en perfectas condiciones. El receptor confirma haber recibido los articulos listados y acepta que estan completos y en buen estado.', 0, 'L')
         
         pdf.ln(8)
         
         # ==================== SECTION: SIGNATURE AREA ====================
         pdf.set_font('Arial', 'B', 9)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 5, 'Firmas y Confirmación', 0, 1, 'L')
+        pdf.cell(0, 5, 'Firmas y Confirmacion', 0, 1, 'L')
         pdf.ln(3)
         
         pdf.set_font('Arial', '', 7)
@@ -2006,7 +1796,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_text_color(120, 120, 120)
         pdf.cell(75, 3, 'Nombre:', 0, 1, 'L')
         pdf.set_x(115)
-        pdf.cell(75, 3, 'Cédula:', 0, 1, 'L')
+        pdf.cell(75, 3, 'Cedula:', 0, 1, 'L')
         pdf.set_x(115)
         pdf.cell(75, 3, 'Fecha:', 0, 1, 'L')
         pdf.set_x(115)
@@ -2030,10 +1820,10 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_y(-20)
         pdf.set_font('Arial', '', 6)
         pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METÁLICAS & OBRAS CIVILES', 0, 1, 'C')
+        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
         pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
         pdf.set_font('Arial', 'I', 6)
-        pdf.cell(0, 3, f'Conduce {conduce_number} | Factura {invoice["quote_id"]} | {invoice["date"]} | Página 1 de 1', 0, 1, 'C')
+        pdf.cell(0, 3, f'Conduce {conduce_number} | Factura {sanitize_text(invoice["quote_id"])} | {sanitize_text(invoice["date"])} | Pagina 1 de 1', 0, 1, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
@@ -2051,7 +1841,6 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         if conn:
             conn.close()
         
-     # redeploy after removing env
-     # redeploy trigger 
+     # redeploy after removing env variables
      # ← FIXED all at once 
      
