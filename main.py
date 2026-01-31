@@ -1904,7 +1904,7 @@ def update_client(
                 tax_id = %s,
                 notes = %s
             WHERE id = %s
-            RETURNING id, company_name, contact_name, email, phone, address, tax_id, notes, created_at
+            RETURNING id, company_name, contact_name, email, phone, address, tax_id, notes, created_at, updated_at
         ''', (
             client.company_name,
             client.contact_name,
