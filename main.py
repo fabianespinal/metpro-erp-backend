@@ -17,6 +17,24 @@ from supabase import create_client, Client
 import csv
 import io
 from fpdf import FPDF
+import re
+
+def sanitize_text(text):
+    """Remove emojis and non-ASCII characters that FPDF can't handle"""
+    if text is None:
+        return ''
+    
+    # Convert to string
+    text = str(text)
+    
+    # Remove emojis and other unsupported Unicode characters
+    # Keep only ASCII printable characters plus basic Latin extended
+    text = re.sub(r'[^\x00-\x7F\xA0-\xFF]+', '', text)
+    
+    # Remove any remaining problematic characters
+    text = text.encode('latin-1', errors='ignore').decode('latin-1')
+    
+    return text
 
 # Debugging output for DATABASE_URL
 dsn = os.environ.get("DATABASE_URL", "")
@@ -737,26 +755,7 @@ def download_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Download failed: {str(e)}')
-
-import re
-
-def sanitize_text(text):
-    """Remove emojis and non-ASCII characters that FPDF can't handle"""
-    if text is None:
-        return ''
     
-    # Convert to string
-    text = str(text)
-    
-    # Remove emojis and other unsupported Unicode characters
-    # Keep only ASCII printable characters plus basic Latin extended
-    text = re.sub(r'[^\x00-\x7F\xA0-\xFF]+', '', text)
-    
-    # Remove any remaining problematic characters
-    text = text.encode('latin-1', errors='ignore').decode('latin-1')
-    
-    return text
-
 
 @app.get('/quotes/{quote_id}/pdf')
 def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
