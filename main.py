@@ -18,6 +18,7 @@ import csv
 import io
 from fpdf import FPDF
 import re
+from auth import router as auth_router
 
 def sanitize_text(text):
     """Remove emojis and non-ASCII characters that FPDF can't handle"""
@@ -88,6 +89,9 @@ app.add_middleware(
     allow_headers=['*'],
     expose_headers=['*']
 )
+
+# Authentication Routes
+app.include_router(auth_router)
 
 # Simple health check endpoint
 @app.get("/health")
@@ -1839,6 +1843,8 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
     finally:
         if conn:
             conn.close()
+
+
         
      # redeploy after removing env variables
      # ← FIXED all at once 
