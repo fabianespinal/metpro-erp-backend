@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file
-from fastapi import FastAPI, Depends, HTTPException, status, Header, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, Header, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -209,6 +209,8 @@ def read_root():
 @app.get('/health')
 def health_check():
     return {'status': 'healthy', 'timestamp': datetime.now().isoformat()}
+
+
 
 # Client endpoints (same as before - no changes needed)
 @app.post('/clients/', response_model=Client)
@@ -1843,6 +1845,255 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
     finally:
         if conn:
             conn.close()
+
+@app.post('/clients/import-csv')
+async def import_clients_csv(
+    file: UploadFile = File(...),
+    skip_duplicates: bool = Form(True),  # ← CHANGED: Use Form() for multipart/form-data
+    current_user: dict = Depends(verify_token)
+):
+    """
+    Import clients from CSV file with validation and duplicate handling
+    skip_duplicates=True: Skip existing clients
+    skip_duplicates=False: Update existing clients
+    
+    USAGE:
+    - Frontend must send as multipart/form-data
+    - File field: 'file'
+    - Boolean field: 'skip_duplicates' (optional, defaults to true)
+    """
+    conn = None
+    audit_log = {
+        'user': current_user.get('sub', 'unknown'),
+        'timestamp': datetime.now().isoformat(),
+        'filename': file.filename,
+        'inserted': 0,
+        'updated': 0,
+        'skipped': 0,
+        'errors': [],
+        'rows_processed': 0
+    }
+    
+    try:
+        # Validate file type
+        if not file.filename.lower().endswith('.csv'):
+            raise HTTPException(status_code=400, detail='File must be CSV format')
+        
+        # Read and decode file (handle UTF-8 with BOM)
+        content = await file.read()
+        try:
+            csv_text = content.decode('utf-8-sig')  # Handles BOM
+        except UnicodeDecodeError:
+            try:
+                csv_text = content.decode('latin-1')  # Fallback encoding
+            except:
+                raise HTTPException(status_code=400, detail='File encoding not supported. Use UTF-8.')
+        
+        # Parse CSV
+        csv_reader = csv.DictReader(io.StringIO(csv_text))
+        rows = list(csv_reader)
+        
+        if not rows:
+            raise HTTPException(status_code=400, detail='CSV file is empty')
+        
+        # Validate required headers
+        required_headers = {'company_name'}
+        csv_headers = set(rows[0].keys())
+        
+        missing_required = required_headers - csv_headers
+        if missing_required:
+            raise HTTPException(
+                status_code=400, 
+                detail=f'Missing required columns: {", ".join(missing_required)}. Required: company_name'
+            )
+        
+        # Connect to DB
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Process each row
+        for idx, row in enumerate(rows, start=2):  # Start at 2 (row 1 = headers)
+            audit_log['rows_processed'] += 1
+            company_name = row.get('company_name', '').strip()
+            
+            # Skip empty rows
+            if not company_name:
+                audit_log['skipped'] += 1
+                audit_log['errors'].append(f'Row {idx}: Empty company_name skipped')
+                continue
+            
+            # Validate email if provided
+            email = row.get('email', '').strip()
+            if email and '@' not in email:
+                audit_log['errors'].append(f'Row {idx} ({company_name}): Invalid email format')
+                audit_log['skipped'] += 1
+                continue
+            
+            # Build client data
+            client_data = {
+                'company_name': company_name,
+                'contact_name': row.get('contact_name', '').strip() or None,
+                'email': email or None,
+                'phone': row.get('phone', '').strip() or None,
+                'address': row.get('address', '').strip() or None,
+                'tax_id': row.get('tax_id', '').strip() or None,
+                'notes': row.get('notes', '').strip() or None
+            }
+            
+            # Check for existing client (by tax_id OR email OR company+contact)
+            existing_id = None
+            
+            # 1. Check by tax_id (most reliable)
+            if client_data['tax_id']:
+                cursor.execute(
+                    'SELECT id FROM clients WHERE tax_id = %s',
+                    (client_data['tax_id'],)
+                )
+                result = cursor.fetchone()
+                if result:
+                    existing_id = result['id']
+            
+            # 2. Check by email
+            if not existing_id and client_data['email']:
+                cursor.execute(
+                    'SELECT id FROM clients WHERE email = %s',
+                    (client_data['email'],)
+                )
+                result = cursor.fetchone()
+                if result:
+                    existing_id = result['id']
+            
+            # 3. Check by company_name + contact_name
+            if not existing_id and client_data['contact_name']:
+                cursor.execute(
+                    'SELECT id FROM clients WHERE company_name = %s AND contact_name = %s',
+                    (client_data['company_name'], client_data['contact_name'])
+                )
+                result = cursor.fetchone()
+                if result:
+                    existing_id = result['id']
+            
+            # Handle duplicate
+            if existing_id:
+                if skip_duplicates:
+                    audit_log['skipped'] += 1
+                    audit_log['errors'].append(
+                        f'Row {idx} ({company_name}): Skipped (duplicate found)'
+                    )
+                    continue
+                else:
+                    # UPDATE existing client
+                    try:
+                        cursor.execute('''
+                            UPDATE clients SET
+                                contact_name = %s,
+                                email = %s,
+                                phone = %s,
+                                address = %s,
+                                tax_id = %s,
+                                notes = %s
+                            WHERE id = %s
+                        ''', (
+                            client_data['contact_name'],
+                            client_data['email'],
+                            client_data['phone'],
+                            client_data['address'],
+                            client_data['tax_id'],
+                            client_data['notes'],
+                            existing_id
+                        ))
+                        audit_log['updated'] += 1
+                    except Exception as e:
+                        audit_log['errors'].append(
+                            f'Row {idx} ({company_name}): Update failed - {str(e)[:100]}'
+                        )
+                        audit_log['skipped'] += 1
+                    continue
+            
+            # INSERT new client
+            try:
+                cursor.execute('''
+                    INSERT INTO clients 
+                    (company_name, contact_name, email, phone, address, tax_id, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                ''', (
+                    client_data['company_name'],
+                    client_data['contact_name'],
+                    client_data['email'],
+                    client_data['phone'],
+                    client_data['address'],
+                    client_data['tax_id'],
+                    client_data['notes']
+                ))
+                cursor.fetchone()  # Consume RETURNING result
+                audit_log['inserted'] += 1
+            except Exception as e:
+                audit_log['errors'].append(
+                    f'Row {idx} ({company_name}): Insert failed - {str(e)[:100]}'
+                )
+                audit_log['skipped'] += 1
+        
+        conn.commit()
+        
+        # Return success report
+        return {
+            'success': True,
+            'summary': {
+                'filename': file.filename,
+                'total_rows': len(rows),
+                'processed': audit_log['rows_processed'],
+                'inserted': audit_log['inserted'],
+                'updated': audit_log['updated'],
+                'skipped': audit_log['skipped'],
+                'errors_count': len(audit_log['errors'])
+            },
+            'errors': audit_log['errors'][:50],  # Limit to first 50 errors
+            'audit_log': {
+                'uploaded_by': audit_log['user'],
+                'timestamp': audit_log['timestamp'],
+                'action': 'skip_duplicates' if skip_duplicates else 'overwrite_existing'
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"CSV Import Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f'Import failed: {str(e)}')
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================================
+# FRONTEND USAGE EXAMPLE (React/JavaScript)
+# ============================================================================
+"""
+// Correct way to call this endpoint from frontend:
+
+const handleCSVUpload = async (file, skipDuplicates = true) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('skip_duplicates', skipDuplicates)
+  
+  const response = await fetch('https://metpro-erp-api.onrender.com/clients/import-csv', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      // DO NOT set Content-Type - browser sets it automatically with boundary
+    },
+    body: formData
+  })
+  
+  const result = await response.json()
+  console.log('Import result:', result)
+}
+"""
 
 
         
