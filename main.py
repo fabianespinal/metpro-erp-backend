@@ -219,11 +219,10 @@ def health_check():
 
 
 
-# Client endpoints (same as before - no changes needed)
+# Client endpoints
 @app.post('/clients/', response_model=Client)
 def create_client(client: ClientBase, current_user: dict = Depends(verify_token)):
     conn = None
-
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -244,20 +243,11 @@ def create_client(client: ClientBase, current_user: dict = Depends(verify_token)
         client_id = cursor.fetchone()['id']
         conn.commit()
 
-        # Fetch the created client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))
         new_client = cursor.fetchone()
 
-        return Client(
-            id=new_client['id'],
-            company_name=new_client['company_name'],
-            contact_name=new_client['contact_name'],
-            email=new_client['email'],
-            phone=new_client['phone'],
-            address=new_client['address'],
-            tax_id=new_client['tax_id'],
-            notes=new_client['notes']
-        )
+        return Client(**new_client)
+
     except Exception as e:
         if conn:
             conn.rollback()
@@ -270,24 +260,12 @@ def create_client(client: ClientBase, current_user: dict = Depends(verify_token)
 @app.get('/clients/', response_model=List[Client])
 def get_clients(current_user: dict = Depends(verify_token)):
     conn = None
-
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM clients ORDER BY company_name')
         rows = cursor.fetchall()
-        return [
-            Client(
-                id=row['id'],
-                company_name=row['company_name'],
-                contact_name=row['contact_name'],
-                email=row['email'],
-                phone=row['phone'],
-                address=row['address'],
-                tax_id=row['tax_id'],
-                notes=row['notes']
-            ) for row in rows
-        ]
+        return [Client(**row) for row in rows]
     finally:
         if conn:
             conn.close()
@@ -309,7 +287,7 @@ def get_client(client_id: int, current_user: dict = Depends(verify_token)):
             conn.close()
 
 
-# ⭐⭐⭐ CSV Import Endpoint — Added Here ⭐⭐⭐
+# ⭐ CSV Import Endpoint — FINAL FIX ⭐
 @app.post('/clients/import-csv')
 async def import_clients_csv(
     file: UploadFile = File(...),
@@ -320,6 +298,9 @@ async def import_clients_csv(
         contents = await file.read()
         text = contents.decode('utf-8')
         rows = text.splitlines()
+        return {"message": "CSV received", "rows": len(rows)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV import failed: {str(e)}")
 
         # You can add your CSV parsing logic here
         return {"message": "CSV received", "rows": len(rows)}
