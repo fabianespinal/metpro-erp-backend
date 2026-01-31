@@ -1,26 +1,41 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Load environment variables from .env file
-from fastapi import FastAPI, Depends, HTTPException, status, Header, File, UploadFile, Form
+
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    status,
+    Header,
+    File,
+    UploadFile,
+    Form
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 from pydantic import BaseModel
 from typing import List, Optional
+
 import psycopg  # psycopg3
-from psycopg.rows import dict_row  # replacement for RealDictCursor
+from psycopg.rows import dict_row  # row factory for dict-style rows
+
 import json
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+
 from supabase import create_client, Client
+
 import csv
 import io
 from fpdf import FPDF
 import re
-from auth import router as auth_router
-from routers.clients import clients_router
-from fastapi import APIRouter
+
+# Import your authentication utilities (NOT routers)
+from auth import verify_token
 
 clients_router = APIRouter()
 
@@ -96,9 +111,6 @@ app.add_middleware(
 
 # Authentication Routes
 app.include_router(auth_router)
-
-# Client Routes
-app.include_router(clients_router, prefix="/clients")
 
 # Simple health check endpoint
 @app.get("/health")
