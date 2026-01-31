@@ -1089,6 +1089,21 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(25, 7, f'${grand_total:,.2f}', 0, 1, 'R')
         
         pdf.ln(12)
+
+        # ==================== SECTION: NOTES (PROJECT & DATE) ====================
+        if quote.get('project_name'):
+            pdf.set_font('Arial', 'B', 8)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 5, 'PROYECTO / PROJECT', 0, 1, 'L')
+            pdf.set_font('Arial', '', 7)
+            pdf.set_text_color(60, 60, 60)
+            pdf.cell(0, 4, f'Nombre: {quote["project_name"]}', 0, 1, 'L')
+            pdf.ln(2)
+        
+        pdf.set_font('Arial', '', 7)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(0, 4, f'Fecha / Date: {quote["date"]}', 0, 1, 'L')
+        pdf.ln(8)
         
         # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
         pdf.set_font('Arial', '', 7)
