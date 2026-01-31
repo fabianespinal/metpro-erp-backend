@@ -1939,17 +1939,20 @@ def update_client(
         if conn:
             conn.rollback()
         raise
-    except psycopg2.IntegrityError as e:
+    except psycopg.errors.UniqueViolation as e:
         if conn:
             conn.rollback()
         error_msg = str(e).lower()
-        if 'unique' in error_msg or 'duplicate' in error_msg:
-            if 'email' in error_msg:
-                raise HTTPException(status_code=400, detail='Email already exists')
-            elif 'tax_id' in error_msg:
-                raise HTTPException(status_code=400, detail='Tax ID already exists')
-            else:
-                raise HTTPException(status_code=400, detail='Duplicate entry detected')
+        if 'email' in error_msg:
+            raise HTTPException(status_code=400, detail='Email already exists')
+        elif 'tax_id' in error_msg:
+            raise HTTPException(status_code=400, detail='Tax ID already exists')
+        else:
+            raise HTTPException(status_code=400, detail='Duplicate entry detected')
+
+    except psycopg.errors.IntegrityError as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=400, detail=f'Database integrity error: {str(e)}')
     except Exception as e:
         if conn:
