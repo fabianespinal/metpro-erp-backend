@@ -19,6 +19,10 @@ import io
 from fpdf import FPDF
 import re
 from auth import router as auth_router
+from routers.clients import clients_router
+from fastapi import APIRouter
+
+clients_router = APIRouter()
 
 def sanitize_text(text):
     """Remove emojis and non-ASCII characters that FPDF can't handle"""
@@ -92,6 +96,9 @@ app.add_middleware(
 
 # Authentication Routes
 app.include_router(auth_router)
+
+# Client Routes
+app.include_router(clients_router, prefix="/clients")
 
 # Simple health check endpoint
 @app.get("/health")
@@ -216,6 +223,7 @@ def health_check():
 @app.post('/clients/', response_model=Client)
 def create_client(client: ClientBase, current_user: dict = Depends(verify_token)):
     conn = None
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -235,9 +243,11 @@ def create_client(client: ClientBase, current_user: dict = Depends(verify_token)
         ))
         client_id = cursor.fetchone()['id']
         conn.commit()
+
         # Fetch the created client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))
         new_client = cursor.fetchone()
+
         return Client(
             id=new_client['id'],
             company_name=new_client['company_name'],
@@ -256,9 +266,11 @@ def create_client(client: ClientBase, current_user: dict = Depends(verify_token)
         if conn:
             conn.close()
 
+
 @app.get('/clients/', response_model=List[Client])
 def get_clients(current_user: dict = Depends(verify_token)):
     conn = None
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -279,6 +291,41 @@ def get_clients(current_user: dict = Depends(verify_token)):
     finally:
         if conn:
             conn.close()
+
+
+@app.get('/clients/{client_id}', response_model=Client)
+def get_client(client_id: int, current_user: dict = Depends(verify_token)):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))
+        row = cursor.fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail='Client not found')
+        return Client(**row)
+    finally:
+        if conn:
+            conn.close()
+
+
+# ⭐⭐⭐ CSV Import Endpoint — Added Here ⭐⭐⭐
+@app.post('/clients/import-csv')
+async def import_clients_csv(
+    file: UploadFile = File(...),
+    skip_duplicates: bool = True,
+    current_user: dict = Depends(verify_token)
+):
+    try:
+        contents = await file.read()
+        text = contents.decode('utf-8')
+        rows = text.splitlines()
+
+        # You can add your CSV parsing logic here
+        return {"message": "CSV received", "rows": len(rows)}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV import failed: {str(e)}")
 
 # Example fix for get_client
 @app.get('/clients/{client_id}', response_model=Client)
