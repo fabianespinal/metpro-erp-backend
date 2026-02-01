@@ -1139,14 +1139,14 @@ def get_client_activity(
     finally:
         if conn: conn.close()
 
-# Quote endpoints (same as before - no changes needed)
 @app.post('/quotes/', response_model=dict)
 def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_token)):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # Verify client exists (PostgreSQL uses %s not ?)
+        
+        # Verify client exists
         cursor.execute('SELECT * FROM clients WHERE id = %s', (quote_data.client_id,))
         client = cursor.fetchone()
         if not client:
@@ -1158,20 +1158,25 @@ def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_to
             quote_data.included_charges.model_dump()
         )
         
-        # Generate quote ID
+        # ✅ FIX: Search for BOTH COT and INV to find highest number
         year = datetime.now().year
-        cursor.execute(
-            'SELECT quote_id FROM quotes WHERE quote_id LIKE %s ORDER BY quote_id DESC LIMIT 1',
-            (f'COT-{year}-%',)
-        )
+        cursor.execute('''
+            SELECT quote_id FROM quotes 
+            WHERE quote_id LIKE %s OR quote_id LIKE %s
+            ORDER BY quote_id DESC 
+            LIMIT 1
+        ''', (f'COT-{year}-%', f'INV-{year}-%'))
+        
         last_quote = cursor.fetchone()
+        
         if last_quote:
+            # Extract the number from either COT-2026-003 or INV-2026-004
             num = int(last_quote['quote_id'].split('-')[-1])
             quote_id = f'COT-{year}-{num+1:03d}'
         else:
             quote_id = f'COT-{year}-001'
         
-        # Insert quote (PostgreSQL uses %s not ?)
+        # Insert quote
         cursor.execute('''
             INSERT INTO quotes (quote_id, client_id, project_name, date, total_amount, status, notes, included_charges)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -1186,7 +1191,7 @@ def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_to
             json.dumps(quote_data.included_charges.model_dump())
         ))
         
-        # Insert items (PostgreSQL uses %s not ?)
+        # Insert items
         for item in quote_data.items:
             cursor.execute('''
                 INSERT INTO quote_items (quote_id, product_name, quantity, unit_price, discount_type, discount_value)
@@ -1452,27 +1457,44 @@ def convert_to_invoice(quote_id: str, current_user: dict = Depends(verify_token)
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s', (quote_id,))
+        # Get the specific quote
+        cursor.execute('SELECT * FROM quotes WHERE quote_id = %s AND status = %s', 
+                      (quote_id, 'Approved'))
         quote = cursor.fetchone()
+        
         if not quote:
-            raise HTTPException(status_code=404, detail='Quote not found')
-        if quote['status'] != 'Approved':  # ✅ FIXED: Was checking 'Draft' before
-            raise HTTPException(status_code=400, detail=f'Only Approved quotes can be converted (current: {quote["status"]})')
+            raise HTTPException(status_code=404, detail='Quote not found or not approved')
         
-        invoice_id = quote_id.replace('COT-', 'INV-', 1)  # ✅ COT → INV conversion
+        # Get the unique database ID
+        db_id = quote['id']
         
-        cursor.execute('UPDATE quotes SET status = %s, quote_id = %s WHERE quote_id = %s', 
-                      ('Invoiced', invoice_id, quote_id))
+        # Generate new invoice ID
+        invoice_id = quote_id.replace('COT-', 'INV-', 1)
+        
+        # ✅ Update items FIRST using old quote_id
         cursor.execute('UPDATE quote_items SET quote_id = %s WHERE quote_id = %s', 
                       (invoice_id, quote_id))
+        
+        items_updated = cursor.rowcount
+        
+        # ✅ Then update the specific quote using unique 'id'
+        cursor.execute('UPDATE quotes SET status = %s, quote_id = %s WHERE id = %s', 
+                      ('Invoiced', invoice_id, db_id))
+        
         conn.commit()
         
-        return {'invoice_id': invoice_id, 'message': 'Converted to invoice'}
+        return {
+            'invoice_id': invoice_id,
+            'items_updated': items_updated,
+            'message': 'Converted to invoice'
+        }
     except Exception as e:
-        if conn: conn.rollback()
+        if conn: 
+            conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        if conn: conn.close()
+        if conn: 
+            conn.close()
 
 @app.put('/quotes/{quote_id}/status')
 def update_quote_status(quote_id: str, status_update: StatusUpdate, current_user: dict = Depends(verify_token)):
