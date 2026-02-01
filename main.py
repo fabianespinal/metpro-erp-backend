@@ -495,6 +495,441 @@ def calculate_quote_totals(items: List[dict], charges: dict):
         'grand_total': round(grand_total, 2)
     }
 
+# ==================== PROJECT MODELS ====================
+class ProjectBase(BaseModel):
+    client_id: int
+    name: str
+    description: Optional[str] = None
+    status: str = 'planning'
+    start_date: str  # ISO date string
+    end_date: Optional[str] = None
+    estimated_budget: Optional[float] = None
+    notes: Optional[str] = None
+
+class Project(ProjectBase):
+    id: int
+    created_at: str
+    updated_at: str
+    
+    class Config:
+        from_attributes = True
+
+# ==================== PROJECT ENDPOINTS ====================
+@app.post('/projects/', response_model=Project)
+def create_project(project: ProjectBase, current_user: dict = Depends(verify_token)):
+    """Create new project (client-only dependency)"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Validate client exists
+        cursor.execute('SELECT 1 FROM clients WHERE id = %s', (project.client_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail='Client not found')
+        
+        # Insert project
+        cursor.execute('''
+            INSERT INTO projects 
+            (client_id, name, description, status, start_date, end_date, estimated_budget, notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, created_at, updated_at
+        ''', (
+            project.client_id,
+            project.name,
+            project.description,
+            project.status,
+            project.start_date,
+            project.end_date,
+            project.estimated_budget,
+            project.notes
+        ))
+        
+        result = cursor.fetchone()
+        conn.commit()
+        
+        return Project(
+            id=result['id'],
+            client_id=project.client_id,
+            name=project.name,
+            description=project.description,
+            status=project.status,
+            start_date=project.start_date,
+            end_date=project.end_date,
+            estimated_budget=project.estimated_budget,
+            notes=project.notes,
+            created_at=result['created_at'].isoformat(),
+            updated_at=result['updated_at'].isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Create failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
+@app.get('/projects/', response_model=List[Project])
+def get_projects(
+    client_id: Optional[int] = None,
+    status: Optional[str] = None,
+    current_user: dict = Depends(verify_token)
+):
+    """List projects with optional filters"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT p.*, c.company_name as client_name
+            FROM projects p
+            JOIN clients c ON p.client_id = c.id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if client_id:
+            query += ' AND p.client_id = %s'
+            params.append(client_id)
+        if status:
+            query += ' AND p.status = %s'
+            params.append(status)
+        
+        query += ' ORDER BY p.created_at DESC'
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        return [
+            Project(
+                id=row['id'],
+                client_id=row['client_id'],
+                name=row['name'],
+                description=row['description'],
+                status=row['status'],
+                start_date=row['start_date'].isoformat() if row['start_date'] else None,
+                end_date=row['end_date'].isoformat() if row['end_date'] else None,
+                estimated_budget=float(row['estimated_budget']) if row['estimated_budget'] else None,
+                notes=row['notes'],
+                created_at=row['created_at'].isoformat(),
+                updated_at=row['updated_at'].isoformat()
+            )
+            for row in rows
+        ]
+    finally:
+        if conn: conn.close()
+
+@app.get('/projects/{project_id}', response_model=Project)
+def get_project(project_id: int, current_user: dict = Depends(verify_token)):
+    """Get single project"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM projects WHERE id = %s', (project_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Project not found')
+        
+        return Project(
+            id=row['id'],
+            client_id=row['client_id'],
+            name=row['name'],
+            description=row['description'],
+            status=row['status'],
+            start_date=row['start_date'].isoformat() if row['start_date'] else None,
+            end_date=row['end_date'].isoformat() if row['end_date'] else None,
+            estimated_budget=float(row['estimated_budget']) if row['estimated_budget'] else None,
+            notes=row['notes'],
+            created_at=row['created_at'].isoformat(),
+            updated_at=row['updated_at'].isoformat()
+        )
+    finally:
+        if conn: conn.close()
+
+@app.put('/projects/{project_id}', response_model=Project)
+def update_project(
+    project_id: int, 
+    project: ProjectBase, 
+    current_user: dict = Depends(verify_token)
+):
+    """Update project"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Verify project exists
+        cursor.execute('SELECT 1 FROM projects WHERE id = %s', (project_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail='Project not found')
+        
+        # Validate client exists
+        cursor.execute('SELECT 1 FROM clients WHERE id = %s', (project.client_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail='Client not found')
+        
+        cursor.execute('''
+            UPDATE projects SET
+                client_id = %s,
+                name = %s,
+                description = %s,
+                status = %s,
+                start_date = %s,
+                end_date = %s,
+                estimated_budget = %s,
+                notes = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING *
+        ''', (
+            project.client_id,
+            project.name,
+            project.description,
+            project.status,
+            project.start_date,
+            project.end_date,
+            project.estimated_budget,
+            project.notes,
+            project_id
+        ))
+        
+        row = cursor.fetchone()
+        conn.commit()
+        
+        return Project(
+            id=row['id'],
+            client_id=row['client_id'],
+            name=row['name'],
+            description=row['description'],
+            status=row['status'],
+            start_date=row['start_date'].isoformat() if row['start_date'] else None,
+            end_date=row['end_date'].isoformat() if row['end_date'] else None,
+            estimated_budget=float(row['estimated_budget']) if row['estimated_budget'] else None,
+            notes=row['notes'],
+            created_at=row['created_at'].isoformat(),
+            updated_at=row['updated_at'].isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Update failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
+@app.delete('/projects/{project_id}')
+def delete_project(project_id: int, current_user: dict = Depends(verify_token)):
+    """Delete project"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM projects WHERE id = %s', (project_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail='Project not found')
+        conn.commit()
+        return {'message': 'Project deleted successfully'}
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Delete failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
+# ==================== REPORT ENDPOINTS (READ-ONLY) ====================
+@app.get('/reports/quotes-summary')
+def get_quotes_summary(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    client_id: Optional[int] = None,
+    current_user: dict = Depends(verify_token)
+):
+    """Quotes summary report: totals + status breakdown"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Build query with filters
+        query = '''
+            SELECT 
+                COUNT(*) as total_quotes,
+                status,
+                COUNT(*) as count
+            FROM quotes
+            WHERE 1=1
+        '''
+        params = []
+        
+        if start_date and end_date:
+            query += ' AND date BETWEEN %s AND %s'
+            params.extend([start_date, end_date])
+        if client_id:
+            query += ' AND client_id = %s'
+            params.append(client_id)
+        
+        query += ' GROUP BY status ORDER BY status'
+        cursor.execute(query, params)
+        status_breakdown = cursor.fetchall()
+        
+        # Get grand total
+        total_query = 'SELECT COUNT(*) as total FROM quotes WHERE 1=1'
+        total_params = []
+        if start_date and end_date:
+            total_query += ' AND date BETWEEN %s AND %s'
+            total_params.extend([start_date, end_date])
+        if client_id:
+            total_query += ' AND client_id = %s'
+            total_params.append(client_id)
+        
+        cursor.execute(total_query, total_params)
+        grand_total = cursor.fetchone()['total']
+        
+        return {
+            'summary': {
+                'total_quotes': grand_total,
+                'filters': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'client_id': client_id
+                }
+            },
+            'status_breakdown': [
+                {
+                    'status': row['status'],
+                    'count': row['count'],
+                    'percentage': round((row['count'] / grand_total * 100), 1) if grand_total > 0 else 0
+                }
+                for row in status_breakdown
+            ]
+        }
+    finally:
+        if conn: conn.close()
+
+@app.get('/reports/revenue')
+def get_revenue_report(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    client_id: Optional[int] = None,
+    current_user: dict = Depends(verify_token)
+):
+    """Revenue report: approved vs pending totals"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT 
+                status,
+                SUM(total_amount) as total_revenue,
+                COUNT(*) as quote_count
+            FROM quotes
+            WHERE 1=1
+        '''
+        params = []
+        
+        if start_date and end_date:
+            query += ' AND date BETWEEN %s AND %s'
+            params.extend([start_date, end_date])
+        if client_id:
+            query += ' AND client_id = %s'
+            params.append(client_id)
+        
+        query += " AND status IN ('Approved', 'Draft') GROUP BY status"
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        
+        # Format response
+        approved = next((r for r in results if r['status'] == 'Approved'), {'total_revenue': 0, 'quote_count': 0})
+        pending = next((r for r in results if r['status'] == 'Draft'), {'total_revenue': 0, 'quote_count': 0})
+        
+        return {
+            'summary': {
+                'filters': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'client_id': client_id
+                }
+            },
+            'revenue_breakdown': [
+                {
+                    'status': 'Approved',
+                    'total_revenue': float(approved['total_revenue']) if approved['total_revenue'] else 0,
+                    'quote_count': approved['quote_count']
+                },
+                {
+                    'status': 'Pending (Draft)',
+                    'total_revenue': float(pending['total_revenue']) if pending['total_revenue'] else 0,
+                    'quote_count': pending['quote_count']
+                }
+            ],
+            'grand_total': float(approved['total_revenue'] + pending['total_revenue']) if (approved['total_revenue'] or pending['total_revenue']) else 0
+        }
+    finally:
+        if conn: conn.close()
+
+@app.get('/reports/client-activity')
+def get_client_activity(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(verify_token)
+):
+    """Client activity report: quotes per client"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        query = '''
+            SELECT 
+                c.id as client_id,
+                c.company_name,
+                COUNT(q.quote_id) as quote_count,
+                SUM(q.total_amount) as total_quoted,
+                MAX(q.date) as last_quote_date
+            FROM clients c
+            LEFT JOIN quotes q ON c.id = q.client_id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if start_date and end_date:
+            query += ' AND (q.date BETWEEN %s AND %s OR q.date IS NULL)'
+            params.extend([start_date, end_date])
+        
+        query += '''
+            GROUP BY c.id, c.company_name
+            HAVING COUNT(q.quote_id) > 0
+            ORDER BY total_quoted DESC
+        '''
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        return {
+            'summary': {
+                'filters': {
+                    'start_date': start_date,
+                    'end_date': end_date
+                },
+                'total_clients': len(rows),
+                'total_quotes': sum(row['quote_count'] for row in rows),
+                'total_revenue': sum(row['total_quoted'] for row in rows)
+            },
+            'clients': [
+                {
+                    'client_id': row['client_id'],
+                    'client_name': row['company_name'],
+                    'quote_count': row['quote_count'],
+                    'total_quoted': float(row['total_quoted']) if row['total_quoted'] else 0,
+                    'last_quote_date': row['last_quote_date'].isoformat() if row['last_quote_date'] else None
+                }
+                for row in rows
+            ]
+        }
+    finally:
+        if conn: conn.close()
+
 # Quote endpoints (same as before - no changes needed)
 @app.post('/quotes/', response_model=dict)
 def create_quote(quote_data: QuoteCreate, current_user: dict = Depends(verify_token)):
