@@ -1410,8 +1410,8 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, Republica Dominicana', 0, 1, 'L')
-        pdf.cell(0, 3, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'L')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'L')
+        pdf.cell(0, 3, 'Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'L')
         
         pdf.ln(8)
         
@@ -1690,7 +1690,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.set_font('Arial', '', 6)
         pdf.set_text_color(140, 140, 140)
         pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave | Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'C')
         pdf.set_font('Arial', 'I', 6)
         pdf.cell(0, 3, f'Cotizacion {sanitize_text(quote["quote_id"])} | {sanitize_text(quote["date"])} | Pagina 1 de 1', 0, 1, 'C')
         
@@ -2083,7 +2083,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_font('Arial', '', 6)
         pdf.set_text_color(140, 140, 140)
         pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave | Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'C')
         pdf.set_font('Arial', 'I', 6)
         pdf.cell(0, 3, f'Factura {sanitize_text(invoice["quote_id"])} | {sanitize_text(invoice["date"])} | Pagina 1 de 1', 0, 1, 'C')
         
@@ -2148,10 +2148,10 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe', 0, 1, 'R')
-        pdf.cell(0, 3, 'Santo Domingo, Republica Dominicana', 0, 1, 'R')
-        pdf.cell(0, 3, 'Tel: (809) 555-1234', 0, 1, 'R')
-        pdf.cell(0, 3, 'RNC: 1-23-45678-9', 0, 1, 'R')
+        pdf.cell(0, 3, '', 0, 1, 'R')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
+        pdf.cell(0, 3, 'Tel: (829) 439-8476', 0, 1, 'R')
+        pdf.cell(0, 3, 'RNC: 131-71683-2', 0, 1, 'R')
         
         pdf.ln(8)
         
@@ -2381,7 +2381,7 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_font('Arial', '', 6)
         pdf.set_text_color(140, 140, 140)
         pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo | Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'C')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave| Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'C')
         pdf.set_font('Arial', 'I', 6)
         pdf.cell(0, 3, f'Conduce {conduce_number} | Factura {sanitize_text(invoice["quote_id"])} | {sanitize_text(invoice["date"])} | Pagina 1 de 1', 0, 1, 'C')
         
