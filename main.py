@@ -813,19 +813,20 @@ def get_revenue_report(
     client_id: Optional[int] = None,
     current_user: dict = Depends(verify_token)
 ):
-    """Revenue report: approved vs pending totals"""
+    """Revenue report: approved + invoiced totals (business reality)"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # ✅ FIXED: Include INVOICED status (converted quotes = real revenue)
         query = '''
             SELECT 
                 status,
-                SUM(total_amount) as total_revenue,
+                COALESCE(SUM(total_amount), 0) as total_revenue,
                 COUNT(*) as quote_count
             FROM quotes
-            WHERE 1=1
+            WHERE status IN ('Approved', 'Invoiced')  -- ✅ INCLUDE INVOICED
         '''
         params = []
         
@@ -836,13 +837,13 @@ def get_revenue_report(
             query += ' AND client_id = %s'
             params.append(client_id)
         
-        query += " AND status IN ('Approved', 'Draft') GROUP BY status"
+        query += ' GROUP BY status ORDER BY status'
         cursor.execute(query, params)
         results = cursor.fetchall()
         
-        # Format response
+        # Get values safely
         approved = next((r for r in results if r['status'] == 'Approved'), {'total_revenue': 0, 'quote_count': 0})
-        pending = next((r for r in results if r['status'] == 'Draft'), {'total_revenue': 0, 'quote_count': 0})
+        invoiced = next((r for r in results if r['status'] == 'Invoiced'), {'total_revenue': 0, 'quote_count': 0})
         
         return {
             'summary': {
@@ -854,18 +855,23 @@ def get_revenue_report(
             },
             'revenue_breakdown': [
                 {
-                    'status': 'Approved',
-                    'total_revenue': float(approved['total_revenue']) if approved['total_revenue'] else 0,
+                    'status': '✅ Approved (Ready to Invoice)',
+                    'total_revenue': float(approved['total_revenue']),
                     'quote_count': approved['quote_count']
                 },
                 {
-                    'status': 'Pending (Draft)',
-                    'total_revenue': float(pending['total_revenue']) if pending['total_revenue'] else 0,
-                    'quote_count': pending['quote_count']
+                    'status': '💰 Invoiced (Realized Revenue)',
+                    'total_revenue': float(invoiced['total_revenue']),
+                    'quote_count': invoiced['quote_count']
                 }
             ],
-            'grand_total': float(approved['total_revenue'] + pending['total_revenue']) if (approved['total_revenue'] or pending['total_revenue']) else 0
+            'grand_total': float(approved['total_revenue'] + invoiced['total_revenue'])
         }
+    except Exception as e:
+        print(f"Revenue report error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f'Revenue report failed: {str(e)[:100]}')
     finally:
         if conn: conn.close()
 
@@ -875,18 +881,19 @@ def get_client_activity(
     end_date: Optional[str] = None,
     current_user: dict = Depends(verify_token)
 ):
-    """Client activity report: quotes per client"""
+    """Client activity report: quotes per client (with NULL safety)"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # ✅ FIXED: COALESCE prevents NULL crashes + explicit date handling
         query = '''
             SELECT 
                 c.id as client_id,
                 c.company_name,
                 COUNT(q.quote_id) as quote_count,
-                SUM(q.total_amount) as total_quoted,
+                COALESCE(SUM(q.total_amount), 0) as total_quoted,
                 MAX(q.date) as last_quote_date
             FROM clients c
             LEFT JOIN quotes q ON c.id = q.client_id
@@ -906,6 +913,19 @@ def get_client_activity(
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
+        clients_data = []
+        for row in rows:
+            clients_data.append({
+                'client_id': row['client_id'],
+                'client_name': row['company_name'],
+                'quote_count': row['quote_count'],
+                'total_quoted': float(row['total_quoted']) if row['total_quoted'] is not None else 0.0,
+                'last_quote_date': row['last_quote_date'].isoformat() if row['last_quote_date'] else None
+            })
+        
+        total_quotes = sum(row['quote_count'] for row in rows)
+        total_revenue = sum(row['total_quoted'] for row in rows)
+        
         return {
             'summary': {
                 'filters': {
@@ -913,20 +933,16 @@ def get_client_activity(
                     'end_date': end_date
                 },
                 'total_clients': len(rows),
-                'total_quotes': sum(row['quote_count'] for row in rows),
-                'total_revenue': sum(row['total_quoted'] for row in rows)
+                'total_quotes': total_quotes,
+                'total_revenue': float(total_revenue) if total_revenue else 0.0
             },
-            'clients': [
-                {
-                    'client_id': row['client_id'],
-                    'client_name': row['company_name'],
-                    'quote_count': row['quote_count'],
-                    'total_quoted': float(row['total_quoted']) if row['total_quoted'] else 0,
-                    'last_quote_date': row['last_quote_date'].isoformat() if row['last_quote_date'] else None
-                }
-                for row in rows
-            ]
+            'clients': clients_data
         }
+    except Exception as e:
+        print(f"Client activity report error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f'Client activity report failed: {str(e)[:100]}')
     finally:
         if conn: conn.close()
 
