@@ -495,6 +495,121 @@ def calculate_quote_totals(items: List[dict], charges: dict):
         'grand_total': round(grand_total, 2)
     }
 
+# ==================== PRODUCT ENDPOINTS (POSTGRESQL SYNTAX) ====================
+@app.post('/products/', response_model=Product)
+def create_product(product: ProductBase, current_user: dict = Depends(verify_token)):
+    """Create new product"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO products (name, description, unit_price)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        ''', (product.name, product.description, product.unit_price))
+        product_id = cursor.fetchone()['id']
+        conn.commit()
+        return Product(
+            id=product_id,
+            name=product.name,
+            description=product.description,
+            unit_price=product.unit_price
+        )
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Create failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
+@app.get('/products/', response_model=List[Product])
+def get_products(current_user: dict = Depends(verify_token)):
+    """List all products"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, description, unit_price FROM products ORDER BY name')
+        rows = cursor.fetchall()
+        return [
+            Product(
+                id=row['id'],
+                name=row['name'],
+                description=row['description'],
+                unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+            )
+            for row in rows
+        ]
+    finally:
+        if conn: conn.close()
+
+@app.get('/products/{product_id}', response_model=Product)
+def get_product(product_id: int, current_user: dict = Depends(verify_token)):
+    """Get single product"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, description, unit_price FROM products WHERE id = %s', (product_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Product not found')
+        return Product(
+            id=row['id'],
+            name=row['name'],
+            description=row['description'],
+            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+        )
+    finally:
+        if conn: conn.close()
+
+@app.put('/products/{product_id}', response_model=Product)
+def update_product(product_id: int, product: ProductBase, current_user: dict = Depends(verify_token)):
+    """Update product"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE products 
+            SET name = %s, description = %s, unit_price = %s 
+            WHERE id = %s
+            RETURNING id, name, description, unit_price
+        ''', (product.name, product.description, product.unit_price, product_id))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail='Product not found')
+        conn.commit()
+        return Product(
+            id=row['id'],
+            name=row['name'],
+            description=row['description'],
+            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+        )
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Update failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
+@app.delete('/products/{product_id}')
+def delete_product(product_id: int, current_user: dict = Depends(verify_token)):
+    """Delete product"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM products WHERE id = %s', (product_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail='Product not found')
+        conn.commit()
+        return {'message': 'Product deleted successfully'}
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Delete failed: {str(e)}')
+    finally:
+        if conn: conn.close()
+
 # ==================== PROJECT MODELS ====================
 class ProjectBase(BaseModel):
     client_id: int
@@ -881,13 +996,12 @@ def get_client_activity(
     end_date: Optional[str] = None,
     current_user: dict = Depends(verify_token)
 ):
-    """Client activity report: NULL-safe with proper date filtering"""
+    """Client activity report: NULL-safe + handles string/date types"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ✅ FIXED: Proper date filtering WITHOUT breaking LEFT JOIN
         query = '''
             SELECT 
                 c.id as client_id,
@@ -896,46 +1010,45 @@ def get_client_activity(
                 COALESCE(SUM(q.total_amount), 0) as total_quoted,
                 MAX(q.date) as last_quote_date
             FROM clients c
-            INNER JOIN quotes q ON c.id = q.client_id  -- ✅ Use INNER JOIN (only clients WITH quotes)
+            INNER JOIN quotes q ON c.id = q.client_id
             WHERE 1=1
         '''
         params = []
         
-        # ✅ FIXED: Only filter dates if BOTH provided, and handle NULL dates safely
         if start_date and end_date:
             query += ' AND q.date IS NOT NULL AND q.date BETWEEN %s AND %s'
             params.extend([start_date, end_date])
         
-        query += '''
-            GROUP BY c.id, c.company_name
-            ORDER BY total_quoted DESC
-        '''
+        query += ' GROUP BY c.id, c.company_name ORDER BY total_quoted DESC'
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
-        # ✅ FIXED: Safe NULL handling for ALL fields
         clients_data = []
         for row in rows:
+            # ✅ CRITICAL FIX: Handle BOTH string and date objects safely
+            last_date = row['last_quote_date']
+            if last_date:
+                if isinstance(last_date, str):
+                    last_date_str = last_date  # Already string (PostgreSQL default)
+                else:
+                    last_date_str = last_date.isoformat()  # Date object
+            else:
+                last_date_str = None
+            
             clients_data.append({
                 'client_id': row['client_id'],
                 'client_name': row['company_name'] or 'Unknown',
                 'quote_count': int(row['quote_count']) if row['quote_count'] else 0,
                 'total_quoted': float(row['total_quoted']) if row['total_quoted'] else 0.0,
-                'last_quote_date': row['last_quote_date'].isoformat() if row['last_quote_date'] else None
+                'last_quote_date': last_date_str
             })
-        
-        total_quotes = sum(item['quote_count'] for item in clients_data)
-        total_revenue = sum(item['total_quoted'] for item in clients_data)
         
         return {
             'summary': {
-                'filters': {
-                    'start_date': start_date,
-                    'end_date': end_date
-                },
+                'filters': {'start_date': start_date, 'end_date': end_date},
                 'total_clients': len(clients_data),
-                'total_quotes': total_quotes,
-                'total_revenue': round(total_revenue, 2)
+                'total_quotes': sum(c['quote_count'] for c in clients_data),
+                'total_revenue': round(sum(c['total_quoted'] for c in clients_data), 2)
             },
             'clients': clients_data
         }
@@ -1739,19 +1852,23 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         # Get invoice (from quotes table - invoices are quotes with INV- prefix and Invoiced status)
         cursor.execute('SELECT * FROM quotes WHERE quote_id = %s AND status = %s', (invoice_id, 'Invoiced'))
         invoice = cursor.fetchone()
+        # AFTER fetching invoice record (line ~45):
         if not invoice:
             raise HTTPException(status_code=404, detail='Invoice not found')
-            
-        # ✅ CRITICAL FIX: Use ACTUAL quote_id FROM DATABASE RECORD (not URL parameter)
-        actual_quote_id = invoice['quote_id']  # This is the TRUTH from database
 
-        # Get items using VALIDATED quote_id
-        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (actual_quote_id,))
+        # ✅ CRITICAL FIX: Use DATABASE quote_id (NOT URL parameter) + explicit validation
+        quote_id_safe = str(invoice['quote_id']).strip()
+        if not quote_id_safe.startswith(('COT-', 'INV-')):
+            raise HTTPException(status_code=400, detail='Invalid quote ID format')
+
+        # ✅ Query items with VALIDATED ID + explicit type casting
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s::TEXT', (quote_id_safe,))
         items = cursor.fetchall()
 
-        # ✅ ADD SAFETY CHECK: Prevent data pollution
+        # ✅ SAFETY: Log for debugging + prevent empty crashes
+        print(f"PDF DEBUG: Generating for {quote_id_safe}, found {len(items)} items")
         if not items:
-            print(f"WARNING: No items found for invoice {actual_quote_id}")
+            items = []  # Prevent crashes, show empty table
         
         # Get client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
@@ -2143,19 +2260,20 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         # Get invoice (from quotes table - invoices are quotes with INV- prefix and Invoiced status)
         cursor.execute('SELECT * FROM quotes WHERE quote_id = %s AND status = %s', (invoice_id, 'Invoiced'))
         invoice = cursor.fetchone()
+        # AFTER fetching invoice record:
         if not invoice:
             raise HTTPException(status_code=404, detail='Invoice not found')
-            
-        # ✅ CRITICAL FIX: Use DATABASE quote_id, NOT URL parameter
-        actual_quote_id = invoice['quote_id']
 
-        # Get items with VALIDATED ID
-        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (actual_quote_id,))
+        # ✅ CRITICAL FIX: Same validation as invoice PDF
+        quote_id_safe = str(invoice['quote_id']).strip()
+        if not quote_id_safe.startswith(('COT-', 'INV-')):
+            raise HTTPException(status_code=400, detail='Invalid quote ID format')
+
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s::TEXT', (quote_id_safe,))
         items = cursor.fetchall()
 
-        # ✅ SAFETY: Prevent showing wrong items
+        print(f"CONDUCE DEBUG: Generating for {quote_id_safe}, found {len(items)} items")
         if not items:
-            print(f"WARNING: No items for conduce {actual_quote_id}")
             items = []
         
         # Get client
