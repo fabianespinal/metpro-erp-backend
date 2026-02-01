@@ -303,32 +303,129 @@ async def import_clients_csv(
     skip_duplicates: bool = True,
     current_user: dict = Depends(verify_token)
 ):
+    """Import clients from CSV with full response structure"""
+    conn = None
+    errors = []  # ← TRACK ERRORS FOR FRONTEND
+    
     try:
-        contents = await file.read()
-        text = contents.decode('utf-8')
-        rows = text.splitlines()
-        return {"message": "CSV received", "rows": len(rows)}
+        # Validate file
+        if not file.filename.lower().endswith('.csv'):
+            raise HTTPException(status_code=400, detail='File must be CSV format')
+        
+        content = await file.read()
+        try:
+            csv_text = content.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail='File must be UTF-8 encoded')
+        
+        rows = list(csv.DictReader(io.StringIO(csv_text)))
+        if not rows:
+            raise HTTPException(status_code=400, detail='CSV file is empty')
+        
+        if 'company_name' not in rows[0]:
+            raise HTTPException(
+                status_code=400, 
+                detail='Missing required column: company_name'
+            )
+        
+        # Process clients
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        inserted = updated = skipped = 0
+        
+        for idx, row in enumerate(rows, start=2):
+            company = row.get('company_name', '').strip()
+            if not company:
+                errors.append(f'Row {idx}: Skipped (empty company_name)')
+                skipped += 1
+                continue
+            
+            # Validate email
+            email = row.get('email', '').strip()
+            if email and '@' not in email:
+                errors.append(f'Row {idx} ({company}): Invalid email format')
+                skipped += 1
+                continue
+            
+            # Check duplicates
+            existing_id = None
+            if row.get('tax_id'):
+                cursor.execute('SELECT id FROM clients WHERE tax_id = %s', (row['tax_id'].strip(),))
+                result = cursor.fetchone()
+                if result: existing_id = result['id']
+            
+            if not existing_id and email:
+                cursor.execute('SELECT id FROM clients WHERE email = %s', (email,))
+                result = cursor.fetchone()
+                if result: existing_id = result['id']
+            
+            # Handle duplicate
+            if existing_id:
+                if skip_duplicates:
+                    errors.append(f'Row {idx} ({company}): Skipped (duplicate found)')
+                    skipped += 1
+                else:
+                    cursor.execute('''
+                        UPDATE clients SET contact_name = %s, phone = %s, address = %s, notes = %s
+                        WHERE id = %s
+                    ''', (
+                        row.get('contact_name', '').strip(),
+                        row.get('phone', '').strip(),
+                        row.get('address', '').strip(),
+                        row.get('notes', '').strip(),
+                        existing_id
+                    ))
+                    updated += 1
+                continue
+            
+            # Insert new client
+            try:
+                cursor.execute('''
+                    INSERT INTO clients 
+                    (company_name, contact_name, email, phone, address, tax_id, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ''', (
+                    company,
+                    row.get('contact_name', '').strip(),
+                    email,
+                    row.get('phone', '').strip(),
+                    row.get('address', '').strip(),
+                    row.get('tax_id', '').strip(),
+                    row.get('notes', '').strip()
+                ))
+                inserted += 1
+            except Exception as e:
+                errors.append(f'Row {idx} ({company}): {str(e)[:80]}')
+                skipped += 1
+        
+        conn.commit()
+        
+        # ✅ CRITICAL: Return EXACT structure frontend expects
+        return {
+            'success': True,
+            'summary': {
+                'filename': file.filename,
+                'total_rows': len(rows),
+                'processed': inserted + updated + skipped,
+                'inserted': inserted,
+                'updated': updated,
+                'skipped': skipped,
+                'errors_count': len(errors)
+            },
+            'errors': errors,  # ← MUST INCLUDE THIS FIELD
+            'audit_log': {
+                'uploaded_by': current_user.get('sub', 'unknown'),
+                'timestamp': datetime.now().isoformat(),
+                'action': 'skip_duplicates' if skip_duplicates else 'overwrite_existing'
+            }
+        }
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV import failed: {str(e)}")
-
-        # You can add your CSV parsing logic here
-        return {"message": "CSV received", "rows": len(rows)}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV import failed: {str(e)}")
-
-# Example fix for get_client
-@app.get('/clients/{client_id}', response_model=Client)
-def get_client(client_id: int, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))  # ← %s NOT ?
-        row = cursor.fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail='Client not found')
-        return Client(**row)  # Simplified using dict_row
+        if conn: conn.rollback()
+        errors.append(f'System error: {str(e)[:100]}')
+        raise HTTPException(status_code=500, detail=f'Import failed: {str(e)[:100]}')
     finally:
         if conn: conn.close()
 
@@ -347,20 +444,6 @@ def get_client(client_id: int, current_user: dict = Depends(verify_token)):
     finally:
         if conn: conn.close()
 
-# Example fix for get_client
-@app.get('/clients/{client_id}', response_model=Client)
-def get_client(client_id: int, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))  # ← %s NOT ?
-        row = cursor.fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail='Client not found')
-        return Client(**row)  # Simplified using dict_row
-    finally:
-        if conn: conn.close()
 
 # Quote calculation helper (supports dynamic percentages)
 def calculate_quote_totals(items: List[dict], charges: dict):
