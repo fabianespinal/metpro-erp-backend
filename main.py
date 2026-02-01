@@ -495,27 +495,112 @@ def calculate_quote_totals(items: List[dict], charges: dict):
         'grand_total': round(grand_total, 2)
     }
 
-# ==================== PRODUCT ENDPOINTS (POSTGRESQL SYNTAX) ====================
+# ==================== PRODUCT MODELS ====================
+class ProductBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    unit_price: float
+
+class Product(ProductBase):
+    id: int
+    
+    class Config:
+        from_attributes = True
+
+# ==================== PRODUCT ENDPOINTS (CRITICAL ORDER) ====================
+# ✅ 1. CSV IMPORT (specific path - MUST be FIRST)
+@app.post('/products/import-csv')
+async def import_products_csv(
+    file: UploadFile = File(...),
+    skip_duplicates: bool = True,
+    current_user: dict = Depends(verify_token)
+):
+    """Import products from CSV with validation"""
+    conn = None
+    try:
+        if not file.filename.lower().endswith('.csv'):
+            raise HTTPException(status_code=400, detail='File must be CSV')
+        
+        content = await file.read()
+        csv_text = content.decode('utf-8-sig')
+        rows = list(csv.DictReader(io.StringIO(csv_text)))
+        
+        if not rows or 'name' not in rows[0]:
+            raise HTTPException(status_code=400, detail='Invalid CSV: Missing "name" column')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        inserted = updated = skipped = 0
+        errors = []
+        
+        for idx, row in enumerate(rows, start=2):
+            name = row.get('name', '').strip()
+            if not name:
+                errors.append(f'Row {idx}: Skipped (empty name)')
+                skipped += 1
+                continue
+            
+            # Check duplicate by name
+            cursor.execute('SELECT id FROM products WHERE name = %s', (name,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                if skip_duplicates:
+                    errors.append(f'Row {idx} ({name}): Skipped (duplicate)')
+                    skipped += 1
+                else:
+                    cursor.execute(
+                        'UPDATE products SET description = %s, unit_price = %s WHERE id = %s',
+                        (row.get('description', '').strip(), 
+                         float(row.get('unit_price', 0)) if row.get('unit_price') else 0,
+                         existing['id'])
+                    )
+                    updated += 1
+                continue
+            
+            # Insert new product
+            cursor.execute(
+                'INSERT INTO products (name, description, unit_price) VALUES (%s, %s, %s)',
+                (name, 
+                 row.get('description', '').strip(), 
+                 float(row.get('unit_price', 0)) if row.get('unit_price') else 0)
+            )
+            inserted += 1
+        
+        conn.commit()
+        return {
+            'success': True,
+            'summary': {
+                'inserted': inserted,
+                'updated': updated,
+                'skipped': skipped,
+                'total': len(rows)
+            },
+            'errors': errors[:20]  # First 20 errors only
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn: conn.rollback()
+        raise HTTPException(status_code=500, detail=f'Import failed: {str(e)[:100]}')
+    finally:
+        if conn: conn.close()
+
+# ✅ 2. COLLECTION ENDPOINTS (POST/GET for /products)
 @app.post('/products/', response_model=Product)
 def create_product(product: ProductBase, current_user: dict = Depends(verify_token)):
-    """Create new product"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO products (name, description, unit_price)
-            VALUES (%s, %s, %s)
-            RETURNING id
-        ''', (product.name, product.description, product.unit_price))
+        cursor.execute(
+            'INSERT INTO products (name, description, unit_price) VALUES (%s, %s, %s) RETURNING id',
+            (product.name, product.description, product.unit_price)
+        )
         product_id = cursor.fetchone()['id']
         conn.commit()
-        return Product(
-            id=product_id,
-            name=product.name,
-            description=product.description,
-            unit_price=product.unit_price
-        )
+        return Product(id=product_id, **product.model_dump())
     except Exception as e:
         if conn: conn.rollback()
         raise HTTPException(status_code=500, detail=f'Create failed: {str(e)}')
@@ -524,28 +609,26 @@ def create_product(product: ProductBase, current_user: dict = Depends(verify_tok
 
 @app.get('/products/', response_model=List[Product])
 def get_products(current_user: dict = Depends(verify_token)):
-    """List all products"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, description, unit_price FROM products ORDER BY name')
-        rows = cursor.fetchall()
         return [
             Product(
                 id=row['id'],
                 name=row['name'],
                 description=row['description'],
-                unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+                unit_price=float(row['unit_price']) if row['unit_price'] else 0.0
             )
-            for row in rows
+            for row in cursor.fetchall()
         ]
     finally:
         if conn: conn.close()
 
+# ✅ 3. ITEM ENDPOINTS (DYNAMIC ROUTES - MUST BE LAST)
 @app.get('/products/{product_id}', response_model=Product)
 def get_product(product_id: int, current_user: dict = Depends(verify_token)):
-    """Get single product"""
     conn = None
     try:
         conn = get_db_connection()
@@ -558,24 +641,21 @@ def get_product(product_id: int, current_user: dict = Depends(verify_token)):
             id=row['id'],
             name=row['name'],
             description=row['description'],
-            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+            unit_price=float(row['unit_price']) if row['unit_price'] else 0.0
         )
     finally:
         if conn: conn.close()
 
 @app.put('/products/{product_id}', response_model=Product)
 def update_product(product_id: int, product: ProductBase, current_user: dict = Depends(verify_token)):
-    """Update product"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE products 
-            SET name = %s, description = %s, unit_price = %s 
-            WHERE id = %s
-            RETURNING id, name, description, unit_price
-        ''', (product.name, product.description, product.unit_price, product_id))
+        cursor.execute(
+            'UPDATE products SET name = %s, description = %s, unit_price = %s WHERE id = %s RETURNING id, name, description, unit_price',
+            (product.name, product.description, product.unit_price, product_id)
+        )
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail='Product not found')
@@ -584,7 +664,7 @@ def update_product(product_id: int, product: ProductBase, current_user: dict = D
             id=row['id'],
             name=row['name'],
             description=row['description'],
-            unit_price=float(row['unit_price']) if row['unit_price'] is not None else 0.0
+            unit_price=float(row['unit_price']) if row['unit_price'] else 0.0
         )
     except Exception as e:
         if conn: conn.rollback()
@@ -594,7 +674,6 @@ def update_product(product_id: int, product: ProductBase, current_user: dict = D
 
 @app.delete('/products/{product_id}')
 def delete_product(product_id: int, current_user: dict = Depends(verify_token)):
-    """Delete product"""
     conn = None
     try:
         conn = get_db_connection()
@@ -1849,26 +1928,32 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Get invoice (from quotes table - invoices are quotes with INV- prefix and Invoiced status)
+        # Get invoice
         cursor.execute('SELECT * FROM quotes WHERE quote_id = %s AND status = %s', (invoice_id, 'Invoiced'))
         invoice = cursor.fetchone()
-        # AFTER fetching invoice record (line ~45):
+
         if not invoice:
             raise HTTPException(status_code=404, detail='Invoice not found')
 
-        # ✅ CRITICAL FIX: Use DATABASE quote_id (NOT URL parameter) + explicit validation
+        # Validate quote_id from database
         quote_id_safe = str(invoice['quote_id']).strip()
         if not quote_id_safe.startswith(('COT-', 'INV-')):
             raise HTTPException(status_code=400, detail='Invalid quote ID format')
 
-        # ✅ Query items with VALIDATED ID + explicit type casting
+        # Get client
+        cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
+        client = cursor.fetchone()
+        if not client:
+            raise HTTPException(status_code=404, detail='Client not found')
+
+        # Get items ONCE using validated ID
         cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s::TEXT', (quote_id_safe,))
         items = cursor.fetchall()
 
-        # ✅ SAFETY: Log for debugging + prevent empty crashes
+        # Safety check
         print(f"PDF DEBUG: Generating for {quote_id_safe}, found {len(items)} items")
         if not items:
-            items = []  # Prevent crashes, show empty table
+            items = []
         
         # Get client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
