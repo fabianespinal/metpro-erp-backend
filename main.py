@@ -881,13 +881,13 @@ def get_client_activity(
     end_date: Optional[str] = None,
     current_user: dict = Depends(verify_token)
 ):
-    """Client activity report: quotes per client (with NULL safety)"""
+    """Client activity report: NULL-safe with proper date filtering"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # ✅ FIXED: COALESCE prevents NULL crashes + explicit date handling
+        # ✅ FIXED: Proper date filtering WITHOUT breaking LEFT JOIN
         query = '''
             SELECT 
                 c.id as client_id,
@@ -896,35 +896,36 @@ def get_client_activity(
                 COALESCE(SUM(q.total_amount), 0) as total_quoted,
                 MAX(q.date) as last_quote_date
             FROM clients c
-            LEFT JOIN quotes q ON c.id = q.client_id
+            INNER JOIN quotes q ON c.id = q.client_id  -- ✅ Use INNER JOIN (only clients WITH quotes)
             WHERE 1=1
         '''
         params = []
         
+        # ✅ FIXED: Only filter dates if BOTH provided, and handle NULL dates safely
         if start_date and end_date:
-            query += ' AND (q.date BETWEEN %s AND %s OR q.date IS NULL)'
+            query += ' AND q.date IS NOT NULL AND q.date BETWEEN %s AND %s'
             params.extend([start_date, end_date])
         
         query += '''
             GROUP BY c.id, c.company_name
-            HAVING COUNT(q.quote_id) > 0
             ORDER BY total_quoted DESC
         '''
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
+        # ✅ FIXED: Safe NULL handling for ALL fields
         clients_data = []
         for row in rows:
             clients_data.append({
                 'client_id': row['client_id'],
-                'client_name': row['company_name'],
-                'quote_count': row['quote_count'],
-                'total_quoted': float(row['total_quoted']) if row['total_quoted'] is not None else 0.0,
+                'client_name': row['company_name'] or 'Unknown',
+                'quote_count': int(row['quote_count']) if row['quote_count'] else 0,
+                'total_quoted': float(row['total_quoted']) if row['total_quoted'] else 0.0,
                 'last_quote_date': row['last_quote_date'].isoformat() if row['last_quote_date'] else None
             })
         
-        total_quotes = sum(row['quote_count'] for row in rows)
-        total_revenue = sum(row['total_quoted'] for row in rows)
+        total_quotes = sum(item['quote_count'] for item in clients_data)
+        total_revenue = sum(item['total_quoted'] for item in clients_data)
         
         return {
             'summary': {
@@ -932,17 +933,17 @@ def get_client_activity(
                     'start_date': start_date,
                     'end_date': end_date
                 },
-                'total_clients': len(rows),
+                'total_clients': len(clients_data),
                 'total_quotes': total_quotes,
-                'total_revenue': float(total_revenue) if total_revenue else 0.0
+                'total_revenue': round(total_revenue, 2)
             },
             'clients': clients_data
         }
     except Exception as e:
-        print(f"Client activity report error: {str(e)}")
+        print(f"Client activity error: {str(e)}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f'Client activity report failed: {str(e)[:100]}')
+        raise HTTPException(status_code=500, detail=f'Client activity failed: {str(e)[:100]}')
     finally:
         if conn: conn.close()
 
@@ -1740,6 +1741,17 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         invoice = cursor.fetchone()
         if not invoice:
             raise HTTPException(status_code=404, detail='Invoice not found')
+            
+        # ✅ CRITICAL FIX: Use ACTUAL quote_id FROM DATABASE RECORD (not URL parameter)
+        actual_quote_id = invoice['quote_id']  # This is the TRUTH from database
+
+        # Get items using VALIDATED quote_id
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (actual_quote_id,))
+        items = cursor.fetchall()
+
+        # ✅ ADD SAFETY CHECK: Prevent data pollution
+        if not items:
+            print(f"WARNING: No items found for invoice {actual_quote_id}")
         
         # Get client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
@@ -2133,6 +2145,18 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         invoice = cursor.fetchone()
         if not invoice:
             raise HTTPException(status_code=404, detail='Invoice not found')
+            
+        # ✅ CRITICAL FIX: Use DATABASE quote_id, NOT URL parameter
+        actual_quote_id = invoice['quote_id']
+
+        # Get items with VALIDATED ID
+        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (actual_quote_id,))
+        items = cursor.fetchall()
+
+        # ✅ SAFETY: Prevent showing wrong items
+        if not items:
+            print(f"WARNING: No items for conduce {actual_quote_id}")
+            items = []
         
         # Get client
         cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
