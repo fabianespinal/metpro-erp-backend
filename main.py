@@ -1955,16 +1955,6 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         if not items:
             items = []
         
-        # Get client
-        cursor.execute('SELECT * FROM clients WHERE id = %s', (invoice['client_id'],))
-        client = cursor.fetchone()
-        if not client:
-            raise HTTPException(status_code=404, detail='Client not found')
-        
-        # Get items (from quote_items table)
-        cursor.execute('SELECT * FROM quote_items WHERE quote_id = %s', (invoice_id,))
-        items = cursor.fetchall()
-        
         # Parse charges with backwards-compatible defaults
         try:
             charges = json.loads(invoice['included_charges'])
