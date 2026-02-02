@@ -535,8 +535,9 @@ async def import_products_csv(
         if not rows or 'name' not in rows[0]:
             raise HTTPException(status_code=400, detail='Invalid CSV: Missing "name" column')
 
+        # psycopg3 connection (dict rows already enabled in get_db_connection)
         conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
 
         inserted = updated = skipped = 0
         errors = []
