@@ -1659,9 +1659,14 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.set_auto_page_break(auto=True, margin=15)
         
         # ==================== HEADER: METPRO BRANDING (MODERNIZED) ====================
-        pdf.set_font('Arial', 'B', 20)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, 'METPRO', 0, 1, 'L')
+        # Add logo to header (after METPRO text section)
+        try:
+            logo_url = "https://metpro-erp-frontend.vercel.app/logo.png"  # UPDATE WITH YOUR ACTUAL URL
+            pdf.image(logo_url, x=10, y=10, w=30)  # Position: top-left, 30mm width
+        except Exception as e:
+            print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
+
+        # Continue without logo - don't crash PDF generation
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
@@ -1945,13 +1950,11 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.cell(60, 4, 'Firma Cliente', 0, 0, 'C')
         
         # ==================== FOOTER: COMPACT INFO ====================
-        pdf.set_y(-20)
-        pdf.set_font('Arial', '', 6)
-        pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave | Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'C')
-        pdf.set_font('Arial', 'I', 6)
-        pdf.cell(0, 3, f'Cotizacion {sanitize_text(quote["quote_id"])} | {sanitize_text(quote["date"])} | Pagina 1 de 1', 0, 1, 'C')
+        # Minimal page number (bottom center)
+        pdf.set_y(-15)
+        pdf.set_font('Arial', 'I', 8)
+        pdf.set_text_color(180, 180, 180)
+        pdf.cell(0, 10, 'Página 1 de 1', 0, 0, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
@@ -2063,9 +2066,14 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.set_auto_page_break(auto=True, margin=15)
         
         # ==================== HEADER: METPRO BRANDING (MODERNIZED) ====================
-        pdf.set_font('Arial', 'B', 20)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, 'METPRO', 0, 1, 'L')
+        # Add logo to header (after METPRO text section)
+        try:
+            logo_url = "https://metpro-erp-frontend.vercel.app/logo.png"  # UPDATE WITH YOUR ACTUAL URL
+            pdf.image(logo_url, x=10, y=10, w=30)  # Position: top-left, 30mm width
+        except Exception as e:
+            print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
+
+    # Continue without logo - don't crash PDF generation
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
@@ -2349,13 +2357,11 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.cell(60, 4, 'Recibido Por Cliente', 0, 0, 'C')
         
         # ==================== FOOTER: COMPACT INFO ====================
-        pdf.set_y(-20)
-        pdf.set_font('Arial', '', 6)
-        pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave | Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'C')
-        pdf.set_font('Arial', 'I', 6)
-        pdf.cell(0, 3, f'Factura {sanitize_text(invoice["quote_id"])} | {sanitize_text(invoice["date"])} | Pagina 1 de 1', 0, 1, 'C')
+        # Minimal page number (bottom center)
+        pdf.set_y(-15)
+        pdf.set_font('Arial', 'I', 8)
+        pdf.set_text_color(180, 180, 180)
+        pdf.cell(0, 10, 'Página 1 de 1', 0, 0, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
@@ -2420,10 +2426,14 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         # Logo placeholder (add actual logo with pdf.image() if you have the file)
         # pdf.image('path/to/logo.png', 10, 10, 30)  # Uncomment and set path when logo is available
         
-        # Company info aligned to the right
-        pdf.set_font('Arial', 'B', 20)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 8, 'METPRO', 0, 1, 'R')
+        # Add logo to header (after METPRO text section)
+        try:
+            logo_url = "https://metpro-erp-frontend.vercel.app/logo.png"  # UPDATE WITH YOUR ACTUAL URL
+            pdf.image(logo_url, x=10, y=10, w=30)  # Position: top-left, 30mm width
+        except Exception as e:
+            print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
+
+    # Continue without logo - don't crash PDF generation
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
@@ -2660,13 +2670,11 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         pdf.ln(22)
         
         # ==================== FOOTER: COMPACT INFO ====================
-        pdf.set_y(-20)
-        pdf.set_font('Arial', '', 6)
-        pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 3, 'METPRO - ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'C')
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave| Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'C')
-        pdf.set_font('Arial', 'I', 6)
-        pdf.cell(0, 3, f'Conduce {conduce_number} | Factura {sanitize_text(invoice["quote_id"])} | {sanitize_text(invoice["date"])} | Pagina 1 de 1', 0, 1, 'C')
+        # Minimal page number (bottom center)
+        pdf.set_y(-15)
+        pdf.set_font('Arial', 'I', 8)
+        pdf.set_text_color(180, 180, 180)
+        pdf.cell(0, 10, 'Página 1 de 1', 0, 0, 'C')
         
         pdf_bytes = pdf.output()
         return StreamingResponse(
