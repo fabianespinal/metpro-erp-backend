@@ -1670,21 +1670,15 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             # Debug print to confirm path
             print("Logo path:", logo_path, "Exists:", os.path.exists(logo_path))
 
-            pdf.image(logo_path, x=10, y=10, w=30)
+            pdf.image(logo_path, x=10, y=10, w=15)
 
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
-
-
-        
-        pdf.set_font('Arial', '', 8)
-        pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 4, 'ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'L')
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'L')
-        pdf.cell(0, 3, 'Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'L')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
+        pdf.cell(0, 3, 'Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'R')
         
         pdf.ln(8)
         
@@ -2086,22 +2080,16 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             # Debug print to confirm path
             print("Logo path:", logo_path, "Exists:", os.path.exists(logo_path))
 
-            pdf.image(logo_path, x=10, y=10, w=30)
+            pdf.image(logo_path, x=10, y=10, w=15)
 
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
 
-
-
-        
-        pdf.set_font('Arial', '', 8)
-        pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 4, 'ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'L')
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Calle Principal #123, Ensanche La Fe, Santo Domingo, Republica Dominicana', 0, 1, 'L')
-        pdf.cell(0, 3, 'Tel: (809) 555-1234 | RNC: 1-23-45678-9', 0, 1, 'L')
+        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
+        pdf.cell(0, 3, 'Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'R')
         
         pdf.ln(8)
         
@@ -2455,19 +2443,11 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             # Debug print to confirm path
             print("Logo path:", logo_path, "Exists:", os.path.exists(logo_path))
 
-            pdf.image(logo_path, x=10, y=10, w=30)
+            pdf.image(logo_path, x=10, y=10, w=15)
 
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
 
-
-
-
-    # Continue without logo - don't crash PDF generation
-        
-        pdf.set_font('Arial', '', 8)
-        pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 4, 'ESTRUCTURAS METALICAS & OBRAS CIVILES', 0, 1, 'R')
         
         pdf.set_font('Arial', '', 7)
         pdf.set_text_color(120, 120, 120)
