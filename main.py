@@ -1661,12 +1661,21 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         # ==================== HEADER: METPRO BRANDING (MODERNIZED) ====================
         # Add logo to header (after METPRO text section)
         try:
-            logo_url = "https://metpro-erp-frontend.vercel.app/logo.png"  # UPDATE WITH YOUR ACTUAL URL
-            pdf.image(logo_url, x=10, y=10, w=30)  # Position: top-left, 30mm width
+            # Absolute path to backend directory
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # Full path to logo inside backend/assets/
+            logo_path = os.path.join(base_dir, "assets", "logo.png")
+
+            # Debug print to confirm path
+            print("Logo path:", logo_path, "Exists:", os.path.exists(logo_path))
+
+            pdf.image(logo_path, x=10, y=10, w=30)
+
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
 
-        # Continue without logo - don't crash PDF generation
+
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
@@ -2068,12 +2077,22 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         # ==================== HEADER: METPRO BRANDING (MODERNIZED) ====================
         # Add logo to header (after METPRO text section)
         try:
-            logo_url = "https://metpro-erp-frontend.vercel.app/logo.png"  # UPDATE WITH YOUR ACTUAL URL
-            pdf.image(logo_url, x=10, y=10, w=30)  # Position: top-left, 30mm width
+            # Absolute path to backend directory
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # Full path to logo inside backend/assets/
+            logo_path = os.path.join(base_dir, "assets", "logo.png")
+
+            # Debug print to confirm path
+            print("Logo path:", logo_path, "Exists:", os.path.exists(logo_path))
+
+            pdf.image(logo_path, x=10, y=10, w=30)
+
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
 
-    # Continue without logo - don't crash PDF generation
+
+
         
         pdf.set_font('Arial', '', 8)
         pdf.set_text_color(100, 100, 100)
@@ -2426,12 +2445,23 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         # Logo placeholder (add actual logo with pdf.image() if you have the file)
         # pdf.image('path/to/logo.png', 10, 10, 30)  # Uncomment and set path when logo is available
         
-        # Add logo to header (after METPRO text section)
         try:
-            logo_url = "https://metpro-erp-frontend.vercel.app/logo.png"  # UPDATE WITH YOUR ACTUAL URL
-            pdf.image(logo_url, x=10, y=10, w=30)  # Position: top-left, 30mm width
+            # Absolute path to backend directory
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+            # Full path to logo inside backend/assets/
+            logo_path = os.path.join(base_dir, "assets", "logo.png")
+
+            # Debug print to confirm path
+            print("Logo path:", logo_path, "Exists:", os.path.exists(logo_path))
+
+            pdf.image(logo_path, x=10, y=10, w=30)
+
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
+
+
+
 
     # Continue without logo - don't crash PDF generation
         
