@@ -1685,7 +1685,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         # ==================== TITLE: COTIZACIÓN (REFINED) ====================
         pdf.set_font('Arial', 'B', 14)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 7, 'COTIZACION', 0, 1, 'L')
+        pdf.cell(0, 7, 'COTIZACION', 0, 1, 'R')
         pdf.set_draw_color(220, 220, 220)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(6)
@@ -2096,7 +2096,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         # ==================== TITLE: FACTURA (REFINED) ====================
         pdf.set_font('Arial', 'B', 14)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(0, 7, 'FACTURA', 0, 1, 'L')
+        pdf.cell(0, 7, 'FACTURA', 0, 1, 'R')
         pdf.set_draw_color(220, 220, 220)
         pdf.line(10, pdf.get_y(), 200, pdf.get_y())
         pdf.ln(6)
