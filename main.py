@@ -515,59 +515,82 @@ async def import_products_csv(
     skip_duplicates: bool = True,
     current_user: dict = Depends(verify_token)
 ):
-    """Import products from CSV with validation"""
+    """Import products from CSV with validation and UTF-8 safety"""
+
     conn = None
     try:
+        # Validate file extension
         if not file.filename.lower().endswith('.csv'):
             raise HTTPException(status_code=400, detail='File must be CSV')
-        
-        content = await file.read()
-        csv_text = content.decode('utf-8-sig')
+
+        # Read raw bytes
+        raw_bytes = await file.read()
+
+        # Decode safely (handles accents, fractions, corrupted bytes)
+        csv_text = raw_bytes.decode('utf-8', errors='replace')
+
+        # Parse CSV
         rows = list(csv.DictReader(io.StringIO(csv_text)))
-        
+
         if not rows or 'name' not in rows[0]:
             raise HTTPException(status_code=400, detail='Invalid CSV: Missing "name" column')
-        
+
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
         inserted = updated = skipped = 0
         errors = []
-        
+
         for idx, row in enumerate(rows, start=2):
-            name = row.get('name', '').strip()
+            name = (row.get('name') or '').strip()
+
             if not name:
                 errors.append(f'Row {idx}: Skipped (empty name)')
                 skipped += 1
                 continue
-            
-            # Check duplicate by name
+
+            description = (row.get('description') or '').strip()
+
+            # Convert price safely
+            raw_price = row.get('unit_price')
+            try:
+                unit_price = float(raw_price) if raw_price not in (None, '', ' ') else 0.0
+            except:
+                errors.append(f'Row {idx} ({name}): Invalid price "{raw_price}" → set to 0')
+                unit_price = 0.0
+
+            # Check if product exists
             cursor.execute('SELECT id FROM products WHERE name = %s', (name,))
             existing = cursor.fetchone()
-            
+
             if existing:
                 if skip_duplicates:
                     errors.append(f'Row {idx} ({name}): Skipped (duplicate)')
                     skipped += 1
                 else:
                     cursor.execute(
-                        'UPDATE products SET description = %s, unit_price = %s WHERE id = %s',
-                        (row.get('description', '').strip(), 
-                         float(row.get('unit_price', 0)) if row.get('unit_price') else 0,
-                         existing['id'])
+                        '''
+                        UPDATE products
+                        SET description = %s, unit_price = %s
+                        WHERE id = %s
+                        ''',
+                        (description, unit_price, existing['id'])
                     )
                     updated += 1
                 continue
-            
+
             # Insert new product
             cursor.execute(
-                'INSERT INTO products (name, description, unit_price) VALUES (%s, %s, %s)',
-                (name, 
-                 row.get('description', '').strip(), 
-                 float(row.get('unit_price', 0)) if row.get('unit_price') else 0)
+                '''
+                INSERT INTO products (name, description, unit_price)
+                VALUES (%s, %s, %s)
+                ''',
+                (name, description, unit_price)
             )
             inserted += 1
-        
+
         conn.commit()
+
         return {
             'success': True,
             'summary': {
@@ -578,14 +601,18 @@ async def import_products_csv(
             },
             'errors': errors[:20]  # First 20 errors only
         }
-    
+
     except HTTPException:
         raise
+
     except Exception as e:
-        if conn: conn.rollback()
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=f'Import failed: {str(e)[:100]}')
+
     finally:
-        if conn: conn.close()
+        if conn:
+            conn.close()
 
 # ✅ 2. COLLECTION ENDPOINTS (POST/GET for /products)
 @app.post('/products/', response_model=Product)
