@@ -1675,9 +1675,10 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         except Exception as e:
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
         
-        pdf.set_font('Arial', '', 7)
+        pdf.set_font('Arial', '', 6)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
+        pdf.cell(0, 3, 'Parque Industrial Disdo', 0, 1, 'R')
+        pdf.cell(0, 3, 'Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
         pdf.cell(0, 3, 'Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'R')
         
         pdf.ln(8)
@@ -2086,9 +2087,10 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
 
         
-        pdf.set_font('Arial', '', 7)
+        pdf.set_font('Arial', '', 6)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
+        pdf.cell(0, 3, 'Parque Industrial Disdo', 0, 1, 'R')
+        pdf.cell(0, 3, 'Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
         pdf.cell(0, 3, 'Tel: (829) 439-8476 | RNC: 131-71683-2', 0, 1, 'R')
         
         pdf.ln(8)
@@ -2449,10 +2451,11 @@ def get_conduce_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             print(f"Logo loading failed (PDF will continue without logo): {str(e)}")
 
         
-        pdf.set_font('Arial', '', 7)
+        pdf.set_font('Arial', '', 6)
         pdf.set_text_color(120, 120, 120)
         pdf.cell(0, 3, '', 0, 1, 'R')
-        pdf.cell(0, 3, 'Parque Industrial Disdo, Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
+        pdf.cell(0, 3, 'Parque Industrial Disdo', 0, 1, 'R')
+        pdf.cell(0, 3, 'Calle Central No. 1, Hato Nuevo Palave', 0, 1, 'R')
         pdf.cell(0, 3, 'Tel: (829) 439-8476', 0, 1, 'R')
         pdf.cell(0, 3, 'RNC: 131-71683-2', 0, 1, 'R')
         
