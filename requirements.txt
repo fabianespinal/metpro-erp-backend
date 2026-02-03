@@ -12,6 +12,7 @@ colorama==0.4.6
 cryptography==46.0.3
 defusedxml==0.7.1
 deprecation==2.1.0
+email-validator
 ecdsa==0.19.1
 fastapi==0.110.0
 fonttools==4.61.1
