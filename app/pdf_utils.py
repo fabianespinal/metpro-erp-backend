@@ -5,32 +5,33 @@ def add_footer_with_signature(pdf):
     except:
         pdf.add_font("GreatVibes", "", "backend/app/fonts/GreatVibes-Regular.ttf", uni=True)
 
-    # Ensure signature is not off-page
-    if pdf.get_y() > 240:
-        pdf.set_y(240)
+    # Capture current Y position safely
+    y = pdf.get_y()
 
-    pdf.set_font('Arial', '', 7)
-    pdf.set_text_color(100, 100, 100)
+    # If content is too close to the bottom, move up
+    if y > 220:
+        y = 220
+        pdf.set_y(y)
 
-    sig_y = pdf.get_y()
-
-    # Signature text
-    pdf.set_xy(20, sig_y - 5)  # moved up for safety
+    # Signature text (cursive)
+    pdf.set_xy(20, y + 5)
     pdf.set_font("GreatVibes", "", 20)
     pdf.set_text_color(60, 60, 60)
     pdf.cell(60, 8, "Karmary Mata", 0, 0, 'C')
 
-    # Left line
+    # Reset font for labels
     pdf.set_font('Arial', '', 7)
     pdf.set_text_color(100, 100, 100)
-    pdf.set_xy(20, sig_y + 5)
+
+    # Left line + label
+    pdf.set_xy(20, y + 20)
     pdf.set_draw_color(180, 180, 180)
-    pdf.line(20, sig_y + 5, 80, sig_y + 5)
-    pdf.set_xy(20, sig_y + 6)
+    pdf.line(20, y + 20, 80, y + 20)
+    pdf.set_xy(20, y + 21)
     pdf.cell(60, 4, 'Autorizado Por', 0, 0, 'C')
 
-    # Right line
-    pdf.set_xy(130, sig_y + 5)
-    pdf.line(130, sig_y + 5, 190, sig_y + 5)
-    pdf.set_xy(130, sig_y + 6)
+    # Right line + label
+    pdf.set_xy(130, y + 20)
+    pdf.line(130, y + 20, 190, y + 20)
+    pdf.set_xy(130, y + 21)
     pdf.cell(60, 4, 'Firma Cliente', 0, 0, 'C')
