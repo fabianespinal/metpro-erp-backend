@@ -1941,7 +1941,7 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
         pdf.ln(12)  # Add space before signatures
         
         # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
-        
+
         # After writing the main content
         add_footer_with_signature(pdf)
         
@@ -2058,6 +2058,7 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
         
         # Create PDF with modernized design
         pdf = FPDF()
+        pdf.alias_nb_pages()
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
         
