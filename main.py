@@ -32,6 +32,8 @@ from app.pdf_utils import add_footer_with_signature
 from fpdf import FPDF
 import re  # For sanitize_text (optional but recommended)
 from auth import router as auth_router
+from routers.users import router as users_router
+
 
 # ✅ CRITICAL: verify_token is DEFINED IN THIS FILE (not imported)
 # DO NOT add "from auth import verify_token" - it doesn't exist!
@@ -80,6 +82,7 @@ app = FastAPI(title='METPRO ERP API')
 
 # Authentication routes
 app.include_router(auth_router)
+app.include_router(users_router, prefix="/users")
 
 # Supabase Storage configuration
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://qbyectandmkdmajzolzb.supabase.co")
@@ -230,6 +233,8 @@ def health_check():
     return {'status': 'healthy', 'timestamp': datetime.now().isoformat()}
 
 
+
+# ==================== CLIENT MODELS ====================
 
 # Client endpoints
 @app.post('/clients/', response_model=Client)
