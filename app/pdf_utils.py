@@ -18,7 +18,7 @@ def add_footer_with_signature(pdf):
     pdf.set_xy(20, sig_y - 5)  # moved up for safety
     pdf.set_font("GreatVibes", "", 20)
     pdf.set_text_color(60, 60, 60)
-    pdf.cell(60, 8, "Fabian Espiga", 0, 0, 'C')
+    pdf.cell(60, 8, "Karmary Mata", 0, 0, 'C')
 
     # Left line
     pdf.set_font('Arial', '', 7)
