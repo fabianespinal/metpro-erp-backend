@@ -14,6 +14,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel
 from typing import List, Optional
@@ -108,6 +109,7 @@ app.add_middleware(
     expose_headers=['*']
 )
 
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 # Simple health check endpoint
 @app.get("/health")
@@ -2829,4 +2831,6 @@ def update_client(
             conn.close()
 
      # ← FIXED all at once 
+          # ← FIXED everywhere 
+
      
