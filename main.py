@@ -28,6 +28,7 @@ from jose import JWTError, jwt
 from supabase import create_client, Client
 import csv
 import io
+from app.pdf_utils import add_footer_with_signature
 from fpdf import FPDF
 import re  # For sanitize_text (optional but recommended)
 from auth import router as auth_router
@@ -1937,23 +1938,12 @@ def get_quote_pdf(quote_id: str, current_user: dict = Depends(verify_token)):
             # Handle multi-line notes properly with word wrap
             pdf.multi_cell(0, 4, quote['notes'].strip(), border=0, align='L', fill=False)
             pdf.ln(3)
-        pdf.ln(5)  # Add space before signatures
+        pdf.ln(12)  # Add space before signatures
         
         # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
-        pdf.set_font('Arial', '', 7)
-        pdf.set_text_color(100, 100, 100)
         
-        sig_y = pdf.get_y()
-        pdf.set_xy(20, sig_y + 15)
-        pdf.set_draw_color(180, 180, 180)
-        pdf.line(20, sig_y + 15, 80, sig_y + 15)
-        pdf.set_xy(20, sig_y + 16)
-        pdf.cell(60, 4, 'Autorizado Por', 0, 0, 'C')
-        
-        pdf.set_xy(130, sig_y + 15)
-        pdf.line(130, sig_y + 15, 190, sig_y + 15)
-        pdf.set_xy(130, sig_y + 16)
-        pdf.cell(60, 4, 'Firma Cliente', 0, 0, 'C')
+        # After writing the main content
+        add_footer_with_signature(pdf)
         
         # ==================== FOOTER: COMPACT INFO ====================
         # Minimal page number (bottom center)
@@ -2349,23 +2339,12 @@ def get_invoice_pdf(invoice_id: str, current_user: dict = Depends(verify_token))
             # Handle multi-line notes properly with word wrap
             pdf.multi_cell(0, 4, invoice['notes'].strip(), border=0, align='L', fill=False)
             pdf.ln(3)
-        pdf.ln(5)  # Add space before signatures
+        pdf.ln(12)  # Add space before signatures
         
         # ==================== SECTION: SIGNATURES (MINIMALIST) ====================
-        pdf.set_font('Arial', '', 7)
-        pdf.set_text_color(100, 100, 100)
-        
-        sig_y = pdf.get_y()
-        pdf.set_xy(20, sig_y + 15)
-        pdf.set_draw_color(180, 180, 180)
-        pdf.line(20, sig_y + 15, 80, sig_y + 15)
-        pdf.set_xy(20, sig_y + 16)
-        pdf.cell(60, 4, 'Autorizado Por', 0, 0, 'C')
-        
-        pdf.set_xy(130, sig_y + 15)
-        pdf.line(130, sig_y + 15, 190, sig_y + 15)
-        pdf.set_xy(130, sig_y + 16)
-        pdf.cell(60, 4, 'Recibido Por Cliente', 0, 0, 'C')
+
+        # After writing the main content
+        add_footer_with_signature(pdf)
         
         # ==================== FOOTER: COMPACT INFO ====================
         # Minimal page number (bottom center)
