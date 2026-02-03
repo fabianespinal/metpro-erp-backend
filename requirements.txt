@@ -31,6 +31,7 @@ mmh3==5.2.0
 multidict==6.7.1
 packaging==26.0
 passlib==1.7.4
+fpdf2
 pillow==12.1.0
 postgrest==2.27.2
 propcache==0.4.1
