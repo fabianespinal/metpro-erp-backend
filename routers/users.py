@@ -1,41 +1,39 @@
+import os
+import psycopg
+from psycopg.rows import dict_row
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from models.user_models import User, UserCreate, UserUpdate
 from services.user_service import verify_token
 from db.connection import get_db_connection
 from passlib.context import CryptContext
-import psycopg2.extras
 
 router = APIRouter(prefix="/users", tags=["Users"])
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 
-# ==================== REGISTER USER ====================
 @router.post("/register")
 def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
-    """Admin-only: Create a new user"""
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only admins can create users")
 
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+        cur = conn.cursor()
 
-        # Check username
-        cursor.execute("SELECT 1 FROM users WHERE username = %s", (user.username,))
-        if cursor.fetchone():
+        cur.execute("SELECT 1 FROM users WHERE username = %s", (user.username,))
+        if cur.fetchone():
             raise HTTPException(status_code=400, detail="Username already exists")
 
-        # Check email
         if user.email:
-            cursor.execute("SELECT 1 FROM users WHERE email = %s", (user.email,))
-            if cursor.fetchone():
+            cur.execute("SELECT 1 FROM users WHERE email = %s", (user.email,))
+            if cur.fetchone():
                 raise HTTPException(status_code=400, detail="Email already registered")
 
         hashed_password = pwd_context.hash(user.password)
 
-        cursor.execute(
+        cur.execute(
             """
             INSERT INTO users (username, email, hashed_password, role, is_active)
             VALUES (%s, %s, %s, %s, %s)
@@ -50,7 +48,7 @@ def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
             ),
         )
 
-        new_user = cursor.fetchone()
+        new_user = cur.fetchone()
         conn.commit()
 
         return {
@@ -68,15 +66,12 @@ def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
     except HTTPException:
         raise
     except Exception as e:
-        if conn:
-            conn.rollback()
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
     finally:
         if conn:
             conn.close()
 
 
-# ==================== GET ALL USERS ====================
 @router.get("/", response_model=List[User])
 def get_users(current_user: dict = Depends(verify_token)):
     if current_user.get("role") != "admin":
@@ -84,8 +79,8 @@ def get_users(current_user: dict = Depends(verify_token)):
 
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+        cursor = conn.cursor()
 
         cursor.execute(
             "SELECT id, username, email, role, is_active, created_at FROM users ORDER BY created_at DESC"
@@ -109,15 +104,13 @@ def get_users(current_user: dict = Depends(verify_token)):
             conn.close()
 
 
-# ==================== GET SINGLE USER ====================
 @router.get("/{user_id}", response_model=User)
 def get_user(user_id: int, current_user: dict = Depends(verify_token)):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+        cursor = conn.cursor()
 
-        # Allow self or admin
         if current_user.get("user_id") != user_id and current_user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -144,13 +137,12 @@ def get_user(user_id: int, current_user: dict = Depends(verify_token)):
             conn.close()
 
 
-# ==================== UPDATE USER ====================
 @router.put("/{user_id}")
 def update_user(user_id: int, user_update: UserUpdate, current_user: dict = Depends(verify_token)):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+        cursor = conn.cursor()
 
         cursor.execute("SELECT role, is_active FROM users WHERE id = %s", (user_id,))
         existing = cursor.fetchone()
@@ -158,7 +150,6 @@ def update_user(user_id: int, user_update: UserUpdate, current_user: dict = Depe
         if not existing:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Only admin can modify role or active status
         if current_user.get("role") != "admin":
             if current_user.get("user_id") != user_id:
                 raise HTTPException(status_code=403, detail="Access denied")
@@ -202,7 +193,6 @@ def update_user(user_id: int, user_update: UserUpdate, current_user: dict = Depe
             conn.close()
 
 
-# ==================== DELETE USER ====================
 @router.delete("/{user_id}")
 def delete_user(user_id: int, current_user: dict = Depends(verify_token)):
     if current_user.get("role") != "admin":
@@ -213,8 +203,8 @@ def delete_user(user_id: int, current_user: dict = Depends(verify_token)):
 
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+        cursor = conn.cursor()
 
         cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))
         row = cursor.fetchone()
@@ -238,15 +228,13 @@ def delete_user(user_id: int, current_user: dict = Depends(verify_token)):
             conn.close()
 
 
-# ==================== CHANGE PASSWORD ====================
 @router.post("/{user_id}/change-password")
 def change_password(user_id: int, password_data: dict, current_user: dict = Depends(verify_token)):
     conn = None
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+        cur = conn.cursor()
 
-        # Only admin or self
         if current_user.get("user_id") != user_id and current_user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Access denied")
 
@@ -256,19 +244,22 @@ def change_password(user_id: int, password_data: dict, current_user: dict = Depe
         if not new_password or len(new_password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-        # If not admin, verify current password
         if current_user.get("role") != "admin":
             if not current_password:
                 raise HTTPException(status_code=400, detail="Current password required")
 
-            cursor.execute("SELECT hashed_password FROM users WHERE id = %s", (user_id,))
-            row = cursor.fetchone()
+            cur.execute("SELECT hashed_password FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
 
             if not row or not pwd_context.verify(current_password, row["hashed_password"]):
                 raise HTTPException(status_code=400, detail="Current password is incorrect")
 
         hashed_password = pwd_context.hash(new_password)
-        cursor.execute("UPDATE users SET hashed_password = %s WHERE id = %s", (hashed_password, user_id))
+
+        cur.execute(
+            "UPDATE users SET hashed_password = %s WHERE id = %s",
+            (hashed_password, user_id),
+        )
         conn.commit()
 
         return {"message": "Password changed successfully"}
@@ -276,8 +267,6 @@ def change_password(user_id: int, password_data: dict, current_user: dict = Depe
     except HTTPException:
         raise
     except Exception as e:
-        if conn:
-            conn.rollback()
         raise HTTPException(status_code=500, detail=f"Password change failed: {str(e)}")
     finally:
         if conn:
