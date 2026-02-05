@@ -39,11 +39,18 @@ psycopg==3.3.2
 psycopg-binary==3.3.2
 pyasn1==0.5.1
 pycparser==2.21
+
+# Pydantic chain (Python 3.12 compatible)
 pydantic==2.12.0
 pydantic-settings==2.2.1
 pydantic_core==2.41.1
+typing_extensions==4.14.1
+
 Pygments==2.17.2
+
+# Iceberg (Python 3.12 compatible)
 pyiceberg==0.9.0
+
 PyJWT==2.8.0
 pyparsing==3.1.2
 pyroaring==1.0.3
@@ -62,12 +69,14 @@ starlette==0.36.3
 storage3==0.7.0
 StrEnum==0.4.15
 strictyaml==1.7.3
+
+# Supabase SDK (Python 3.12 compatible)
 supabase==2.4.3
 supabase-auth==2.4.3
 supabase-functions==2.27.3
+
 tenacity==8.2.3
 typing-inspection==0.4.0
-typing_extensions==4.12.2
 tzdata==2024.1
 urllib3==2.2.1
 uvicorn==0.29.0
