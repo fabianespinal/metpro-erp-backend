@@ -3,7 +3,7 @@ supabase==2.9.0
 postgrest==0.17.2
 storage3==0.8.1
 gotrue==2.9.1
-supafunc==0.5.1
+supafunc==0.6.0
 realtime==2.0.5
 httpx==0.27.2
 httpcore==1.0.7
@@ -29,9 +29,3 @@ python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
 fpdf2==2.8.2
 pillow==11.0.0
-pyiceberg==0.7.1
-pyarrow==17.0.0
-mmh3==5.0.1
-pyroaring==1.0.3
-sortedcontainers==2.4.0
-strictyaml==1.7.3
