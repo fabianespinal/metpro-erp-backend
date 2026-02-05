@@ -2816,6 +2816,6 @@ def update_client(
             conn.close()
 
      # ← FIXED all at once 
-          # ← FIXED everywhere 
+          # ← FIXED now
 
      
