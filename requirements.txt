@@ -67,7 +67,7 @@ supabase-auth==2.4.3
 supabase-functions==2.27.3
 tenacity==8.2.3
 typing-inspection==0.4.0
-typing_extensions==4.9.0
+typing_extensions==4.12.2
 tzdata==2024.1
 urllib3==2.2.1
 uvicorn==0.29.0
