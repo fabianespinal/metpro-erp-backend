@@ -99,18 +99,18 @@ def get_db_connection():
     )
 
 # CORS Configuration - Allow frontend origins
+# CORS Configuration - Allow frontend origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        'http://localhost:3000',           # Local development
-        'http://127.0.0.1:3000',           # Local development alternative
-        'https://metpro-erp-frontend.vercel.app',  # Production Vercel
-        'https://*.vercel.app'             # All Vercel preview deployments
+        "http://localhost:3000",                     # Local development
+        "http://127.0.0.1:3000",                     # Local dev alternative
+        "https://metpro-erp-frontend.vercel.app",    # Production frontend
     ],
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-    expose_headers=['*']
+    allow_methods=["*"],      # Required for OPTIONS preflight
+    allow_headers=["*"],      # Required for Content-Type header
+    expose_headers=["*"]
 )
 
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
