@@ -30,90 +30,106 @@ import csv
 import io
 from app.pdf_utils import add_footer_with_signature
 from fpdf import FPDF
-import re  # For sanitize_text (optional but recommended)
+import re
+
 from auth import router as auth_router
 from routers.users import router as users_router
 
 
-# ✅ CRITICAL: verify_token is DEFINED IN THIS FILE (not imported)
-# DO NOT add "from auth import verify_token" - it doesn't exist!
-
-
+# ---------------------------------------------------------
+# Utility: sanitize text for PDF
+# ---------------------------------------------------------
 def sanitize_text(text):
-    """Remove emojis and non-ASCII characters that FPDF can't handle"""
     if text is None:
         return ''
-    
-    # Convert to string
     text = str(text)
-    
-    # Remove emojis and other unsupported Unicode characters
-    # Keep only ASCII printable characters plus basic Latin extended
     text = re.sub(r'[^\x00-\x7F\xA0-\xFF]+', '', text)
-    
-    # Remove any remaining problematic characters
     text = text.encode('latin-1', errors='ignore').decode('latin-1')
-    
     return text
 
+
+# ---------------------------------------------------------
 # Debugging output for DATABASE_URL
+# ---------------------------------------------------------
 dsn = os.environ.get("DATABASE_URL", "")
 print("DSN length:", len(dsn))
 print("DSN contains dot at end:", dsn.rstrip().endswith("."))
 print("DSN host:", dsn.split("@")[1].split("/")[0] if "@" in dsn else "MISSING")
 
-# Database configuration from .env
+
+# ---------------------------------------------------------
+# Database configuration
+# ---------------------------------------------------------
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL not found in .env file!")
 
+
+# ---------------------------------------------------------
 # JWT Configuration
+# ---------------------------------------------------------
 SECRET_KEY = os.environ.get("SECRET_KEY", "metpro-erp-secret-key-change-in-production-2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-# Password hashing setup (Argon2)
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
-
-# JWT Authentication setup
 security = HTTPBearer()
 
+
+# ---------------------------------------------------------
+# FastAPI App
+# ---------------------------------------------------------
 app = FastAPI(title='METPRO ERP API')
 
-# Authentication routes
+
+# ---------------------------------------------------------
+# CORS MUST COME BEFORE ROUTERS AND BEFORE STATIC FILES
+# ---------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://metpro-erp-frontend.vercel.app",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
+
+
+# ---------------------------------------------------------
+# Static files
+# ---------------------------------------------------------
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+
+
+# ---------------------------------------------------------
+# Routers (AFTER CORS)
+# ---------------------------------------------------------
 app.include_router(auth_router)
 app.include_router(users_router, prefix="/users")
 
-# Supabase Storage configuration
+
+# ---------------------------------------------------------
+# Supabase Storage
+# ---------------------------------------------------------
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://qbyectandmkdmajzolzb.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_KEY else None
 
+
+# ---------------------------------------------------------
+# Database connection
+# ---------------------------------------------------------
 def get_db_connection():
-    """Get a new database connection to Supabase PostgreSQL (IPv4 only)"""
     return psycopg.connect(
         DATABASE_URL,
         row_factory=dict_row,
         connect_timeout=10,
         options='-c statement_timeout=5000'
     )
-
-# CORS Configuration - Allow frontend origins
-# CORS Configuration - Allow frontend origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",                     # Local development
-        "http://127.0.0.1:3000",                     # Local dev alternative
-        "https://metpro-erp-frontend.vercel.app",    # Production frontend
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],      # Required for OPTIONS preflight
-    allow_headers=["*"],      # Required for Content-Type header
-    expose_headers=["*"]
-)
-
-app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 # Simple health check endpoint
 @app.get("/health")
