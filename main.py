@@ -21,7 +21,7 @@ from typing import List, Optional
 
 import json
 from datetime import datetime, timedelta
-from clients.router import router as clients_router
+from backend.clients.router import router as clients_router
 from passlib.context import CryptContext
 from jose import JWTError, ExpiredSignatureError, jwt
 from supabase import create_client, Client

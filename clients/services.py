@@ -1,6 +1,6 @@
 from config.database import get_db_connection
 from fastapi import HTTPException
-from models.client_models import ClientCreate, ClientUpdate
+from backend.models.client_models import ClientCreate, ClientUpdate
 
 
 # -----------------------------
