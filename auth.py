@@ -5,8 +5,7 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 import os
-import psycopg
-from psycopg.rows import dict_row
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

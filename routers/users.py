@@ -1,33 +1,34 @@
 import os
-import psycopg
-from psycopg.rows import dict_row
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List
+from config.database import get_db_connection
 from models.user_models import User, UserCreate, UserUpdate
 from services.user_service import verify_token
-from db.connection import get_db_connection
 from passlib.context import CryptContext
 
 router = APIRouter(prefix="/users", tags=["Users"])
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 
+# -----------------------------
+# CREATE USER (ADMIN ONLY)
+# -----------------------------
 @router.post("/register")
 def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only admins can create users")
 
-    conn = None
-    try:
-        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+    with get_db_connection() as conn:
         cur = conn.cursor()
 
-        cur.execute("SELECT 1 FROM users WHERE username = %s", (user.username,))
+        # Check username
+        cur.execute("SELECT 1 FROM users WHERE username = ?", (user.username,))
         if cur.fetchone():
             raise HTTPException(status_code=400, detail="Username already exists")
 
+        # Check email
         if user.email:
-            cur.execute("SELECT 1 FROM users WHERE email = %s", (user.email,))
+            cur.execute("SELECT 1 FROM users WHERE email = ?", (user.email,))
             if cur.fetchone():
                 raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -36,8 +37,7 @@ def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
         cur.execute(
             """
             INSERT INTO users (username, email, hashed_password, role, is_active)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, username, email, role, is_active, created_at
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 user.username,
@@ -47,9 +47,15 @@ def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
                 True,
             ),
         )
-
-        new_user = cur.fetchone()
         conn.commit()
+
+        new_id = cur.lastrowid
+
+        cur.execute(
+            "SELECT id, username, email, role, is_active, created_at FROM users WHERE id = ?",
+            (new_id,),
+        )
+        new_user = cur.fetchone()
 
         return {
             "message": "User created successfully",
@@ -59,33 +65,25 @@ def register_user(user: UserCreate, current_user: dict = Depends(verify_token)):
                 "email": new_user["email"],
                 "role": new_user["role"],
                 "is_active": new_user["is_active"],
-                "created_at": new_user["created_at"].isoformat(),
+                "created_at": new_user["created_at"],
             },
         }
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
-    finally:
-        if conn:
-            conn.close()
 
-
+# -----------------------------
+# GET ALL USERS (ADMIN ONLY)
+# -----------------------------
 @router.get("/", response_model=List[User])
 def get_users(current_user: dict = Depends(verify_token)):
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only admins can view users")
 
-    conn = None
-    try:
-        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
-        cursor = conn.cursor()
-
-        cursor.execute(
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
             "SELECT id, username, email, role, is_active, created_at FROM users ORDER BY created_at DESC"
         )
-        rows = cursor.fetchall()
+        rows = cur.fetchall()
 
         return [
             User(
@@ -94,31 +92,28 @@ def get_users(current_user: dict = Depends(verify_token)):
                 email=row["email"],
                 role=row["role"],
                 is_active=row["is_active"],
-                created_at=row["created_at"].isoformat(),
+                created_at=row["created_at"],
             )
             for row in rows
         ]
 
-    finally:
-        if conn:
-            conn.close()
 
-
+# -----------------------------
+# GET SINGLE USER
+# -----------------------------
 @router.get("/{user_id}", response_model=User)
 def get_user(user_id: int, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
-        cursor = conn.cursor()
+    with get_db_connection() as conn:
+        cur = conn.cursor()
 
         if current_user.get("user_id") != user_id and current_user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Access denied")
 
-        cursor.execute(
-            "SELECT id, username, email, role, is_active, created_at FROM users WHERE id = %s",
+        cur.execute(
+            "SELECT id, username, email, role, is_active, created_at FROM users WHERE id = ?",
             (user_id,),
         )
-        row = cursor.fetchone()
+        row = cur.fetchone()
 
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
@@ -129,27 +124,25 @@ def get_user(user_id: int, current_user: dict = Depends(verify_token)):
             email=row["email"],
             role=row["role"],
             is_active=row["is_active"],
-            created_at=row["created_at"].isoformat(),
+            created_at=row["created_at"],
         )
 
-    finally:
-        if conn:
-            conn.close()
 
-
+# -----------------------------
+# UPDATE USER
+# -----------------------------
 @router.put("/{user_id}")
 def update_user(user_id: int, user_update: UserUpdate, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
-        cursor = conn.cursor()
+    with get_db_connection() as conn:
+        cur = conn.cursor()
 
-        cursor.execute("SELECT role, is_active FROM users WHERE id = %s", (user_id,))
-        existing = cursor.fetchone()
+        cur.execute("SELECT role, is_active FROM users WHERE id = ?", (user_id,))
+        existing = cur.fetchone()
 
         if not existing:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Permission checks
         if current_user.get("role") != "admin":
             if current_user.get("user_id") != user_id:
                 raise HTTPException(status_code=403, detail="Access denied")
@@ -161,38 +154,32 @@ def update_user(user_id: int, user_update: UserUpdate, current_user: dict = Depe
         update_values = []
 
         if user_update.email is not None:
-            update_fields.append("email = %s")
+            update_fields.append("email = ?")
             update_values.append(user_update.email)
 
         if user_update.role is not None and current_user.get("role") == "admin":
-            update_fields.append("role = %s")
+            update_fields.append("role = ?")
             update_values.append(user_update.role)
 
         if user_update.is_active is not None and current_user.get("role") == "admin":
-            update_fields.append("is_active = %s")
+            update_fields.append("is_active = ?")
             update_values.append(user_update.is_active)
 
         if not update_fields:
             raise HTTPException(status_code=400, detail="No valid fields to update")
 
         update_values.append(user_id)
-        query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = %s"
-        cursor.execute(query, update_values)
+        query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+
+        cur.execute(query, update_values)
         conn.commit()
 
         return {"message": "User updated successfully"}
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
-    finally:
-        if conn:
-            conn.close()
 
-
+# -----------------------------
+# DELETE USER (ADMIN ONLY)
+# -----------------------------
 @router.delete("/{user_id}")
 def delete_user(user_id: int, current_user: dict = Depends(verify_token)):
     if current_user.get("role") != "admin":
@@ -201,38 +188,27 @@ def delete_user(user_id: int, current_user: dict = Depends(verify_token)):
     if current_user.get("user_id") == user_id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
-    conn = None
-    try:
-        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
-        cursor = conn.cursor()
+    with get_db_connection() as conn:
+        cur = conn.cursor()
 
-        cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))
-        row = cursor.fetchone()
+        cur.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
 
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
 
-        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        cur.execute("DELETE FROM users WHERE id = ?", (user_id,))
         conn.commit()
 
         return {"message": f"User {row['username']} deleted successfully"}
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
-    finally:
-        if conn:
-            conn.close()
 
-
+# -----------------------------
+# CHANGE PASSWORD
+# -----------------------------
 @router.post("/{user_id}/change-password")
 def change_password(user_id: int, password_data: dict, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = psycopg.connect(os.getenv("DATABASE_URL"), row_factory=dict_row)
+    with get_db_connection() as conn:
         cur = conn.cursor()
 
         if current_user.get("user_id") != user_id and current_user.get("role") != "admin":
@@ -244,11 +220,12 @@ def change_password(user_id: int, password_data: dict, current_user: dict = Depe
         if not new_password or len(new_password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
+        # Non-admins must verify current password
         if current_user.get("role") != "admin":
             if not current_password:
                 raise HTTPException(status_code=400, detail="Current password required")
 
-            cur.execute("SELECT hashed_password FROM users WHERE id = %s", (user_id,))
+            cur.execute("SELECT hashed_password FROM users WHERE id = ?", (user_id,))
             row = cur.fetchone()
 
             if not row or not pwd_context.verify(current_password, row["hashed_password"]):
@@ -257,17 +234,9 @@ def change_password(user_id: int, password_data: dict, current_user: dict = Depe
         hashed_password = pwd_context.hash(new_password)
 
         cur.execute(
-            "UPDATE users SET hashed_password = %s WHERE id = %s",
+            "UPDATE users SET hashed_password = ? WHERE id = ?",
             (hashed_password, user_id),
         )
         conn.commit()
 
         return {"message": "Password changed successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Password change failed: {str(e)}")
-    finally:
-        if conn:
-            conn.close()

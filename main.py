@@ -19,10 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 
-import psycopg
-from psycopg.rows import dict_row
 import json
 from datetime import datetime, timedelta
+from clients.router import router as clients_router
 from passlib.context import CryptContext
 from jose import JWTError, ExpiredSignatureError, jwt
 from supabase import create_client, Client
@@ -110,6 +109,7 @@ app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 # ---------------------------------------------------------
 app.include_router(auth_router)
 app.include_router(users_router, prefix="/users")
+app.include_router(clients_router)
 
 
 # ---------------------------------------------------------
@@ -273,77 +273,6 @@ def read_root():
 @app.get('/health')
 def health_check():
     return {'status': 'healthy', 'timestamp': datetime.now().isoformat()}
-
-
-
-# ==================== CLIENT MODELS ====================
-
-# Client endpoints
-@app.post('/clients/', response_model=Client)
-def create_client(client: ClientBase, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO clients
-            (company_name, contact_name, email, phone, address, tax_id, notes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        ''', (
-            client.company_name,
-            client.contact_name,
-            client.email,
-            client.phone,
-            client.address,
-            client.tax_id,
-            client.notes
-        ))
-        client_id = cursor.fetchone()['id']
-        conn.commit()
-
-        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))
-        new_client = cursor.fetchone()
-
-        return Client(**new_client)
-
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if conn:
-            conn.close()
-
-
-@app.get('/clients/', response_model=List[Client])
-def get_clients(current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM clients ORDER BY company_name')
-        rows = cursor.fetchall()
-        return [Client(**row) for row in rows]
-    finally:
-        if conn:
-            conn.close()
-
-
-@app.get('/clients/{client_id}', response_model=Client)
-def get_client(client_id: int, current_user: dict = Depends(verify_token)):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM clients WHERE id = %s', (client_id,))
-        row = cursor.fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail='Client not found')
-        return Client(**row)
-    finally:
-        if conn:
-            conn.close()
 
 
 # ⭐ CSV Import Endpoint — FINAL FIX ⭐

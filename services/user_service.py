@@ -1,5 +1,6 @@
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from config.database import get_db_connection
 from jose import jwt
 import os
 
