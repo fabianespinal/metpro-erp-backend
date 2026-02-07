@@ -24,7 +24,7 @@ from psycopg.rows import dict_row
 import json
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
-from jose import JWTError, jwt
+from jose import JWTError, ExpiredSignatureError, jwt
 from supabase import create_client, Client
 import csv
 import io
@@ -141,40 +141,66 @@ def verify_token(
     token: str = None  # Accept token from query string for iframe
 ):
     """Verify JWT token from Authorization header or query string"""
+    # 1) Get token from Authorization: Bearer <token> header or from query param
     if authorization:
         try:
             scheme, token = authorization.split()
             if scheme.lower() != 'bearer':
-                raise HTTPException(status_code=401, detail='Invalid authorization scheme')
+                raise HTTPException(
+                    status_code=401,
+                    detail='Invalid authorization scheme'
+                )
         except ValueError:
-            raise HTTPException(status_code=401, detail='Invalid authorization header format')
+            raise HTTPException(
+                status_code=401,
+                detail='Invalid authorization header format'
+            )
     elif token:
-        pass  # token provided via query string
+        # token provided via query string (e.g. iframe)
+        pass
     else:
-        raise HTTPException(status_code=401, detail='Missing authorization token')
-    
+        raise HTTPException(
+            status_code=401,
+            detail='Missing authorization token'
+        )
+
     if not token:
-        raise HTTPException(status_code=401, detail='Token is empty')
-    
+        raise HTTPException(
+            status_code=401,
+            detail='Token is empty'
+        )
+
+    # 2) Decode and validate JWT
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail='Token expired')
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail='Invalid token')
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=401,
+            detail='Token expired'
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=401,
+            detail='Invalid token'
+        )
+
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
+
 def get_password_hash(password):
     return pwd_context.hash(password)
+
 
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
 
 # Pydantic models
 class ClientBase(BaseModel):
